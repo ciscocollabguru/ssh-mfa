@@ -65,7 +65,16 @@ load_config() {
   : "${TOTP_RATE_LIMIT_N:=3}"
   : "${TOTP_RATE_LIMIT_S:=30}"
   : "${SCRATCH_CODES:=5}"
-  : "${TOTP_ISSUER:=$(hostname -s 2>/dev/null || echo ssh)}"
+  # Prefer an FQDN; 'localhost' is useless as a label in an authenticator app
+  # holding entries for several hosts.
+  if [[ -z "${TOTP_ISSUER:-}" ]]; then
+    TOTP_ISSUER="$(hostname -f 2>/dev/null || true)"
+    [[ -z "$TOTP_ISSUER" || "$TOTP_ISSUER" == localhost* ]] && \
+      TOTP_ISSUER="$(hostname -s 2>/dev/null || true)"
+    [[ -z "$TOTP_ISSUER" || "$TOTP_ISSUER" == localhost* ]] && TOTP_ISSUER="ssh"
+  fi
+  : "${TOTP_LABEL_FLAGS:=no}"
+  : "${ENROLL_TIMEOUT:=60}"
   : "${SSHD_DROPIN:=/etc/ssh/sshd_config.d/50-mfa.conf}"
   : "${BACKUP_ROOT:=/var/backups/ssh-mfa}"
   : "${ENROLL_OUT_DIR:=/root/ssh-mfa-enrolments}"

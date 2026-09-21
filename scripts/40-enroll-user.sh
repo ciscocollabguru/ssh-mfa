@@ -66,27 +66,71 @@ enroll_one() {
   install -d -m 0700 "$ENROLL_OUT_DIR"
   local out="$ENROLL_OUT_DIR/$u-$(date +%Y%m%dT%H%M%S).txt"
 
-  # -t TOTP  -d no code reuse  -f no prompts  -w skew window  -r/-R rate limit
-  # -e emergency scratch codes  -i issuer  -l account label
+  # -t TOTP  -d no code reuse  -f write the file without confirming
+  # -w skew window  -r/-R rate limit  -e emergency scratch codes
   local args=(-t -d -f
     -w "$TOTP_WINDOW"
     -r "$TOTP_RATE_LIMIT_N" -R "$TOTP_RATE_LIMIT_S"
-    -i "$TOTP_ISSUER" -l "$u@$TOTP_ISSUER"
     -s "$home/.google_authenticator")
-  # -e is not in every build; fall back to the default code count.
-  if google-authenticator --help 2>&1 | grep -q -- '-e '; then
+
+  # Match on the long option: help lists flags as "-e, --emergency-codes=N",
+  # so grepping for "-e " (trailing space) never matches and silently drops
+  # the flag on builds that do support it.
+  if google-authenticator --help 2>&1 | grep -q -- '--emergency-codes'; then
     args+=(-e "$SCRATCH_CODES")
   else
-    warn "this google-authenticator build has no -e flag; using its default number of scratch codes"
+    warn "this google-authenticator build has no --emergency-codes flag; using its default count"
   fi
 
-  ( umask 077; runuser -u "$u" -- google-authenticator "${args[@]}" > "$out" 2>&1 ) \
-    || { err "enrolment failed for $u:"; sed 's/^/    /' "$out" >&2; return 1; }
+  # -i/-l are off by default. Passing both makes some builds percent-encode
+  # the '?' and '&' of the otpauth URI ("...alice@host%3Fsecret%3D..."),
+  # collapsing it into a single path segment that many apps cannot parse.
+  # The default label is already user@hostname, which is what we want.
+  if [[ "${TOTP_LABEL_FLAGS:-no}" == "yes" ]]; then
+    args+=(-i "$TOTP_ISSUER" -l "$u@$TOTP_ISSUER")
+  fi
+
+  log "generating token for $u (non-interactive)..."
+
+  # Two things matter here:
+  #  * stdin is fed '-1'. Some builds prompt "Enter code from app
+  #    (-1 to skip)" even under -f, and -1 declines it.
+  #  * stdout is captured, so any prompt would be INVISIBLE and the script
+  #    would look hung while blocking on the terminal. timeout is the
+  #    backstop for a build that prompts for something we did not anticipate.
+  local rc=0 runner=()
+  command -v timeout >/dev/null && runner=(timeout "${ENROLL_TIMEOUT:-60}")
+  ( umask 077
+    printf '%s\n' -1 \
+      | ${runner[@]+"${runner[@]}"} runuser -u "$u" -- \
+          google-authenticator "${args[@]}" > "$out" 2>&1
+  ) || rc=$?
+
+  if (( rc != 0 )); then
+    err "enrolment failed for $u (exit $rc$( ((rc==124)) && printf ': timed out'))"
+    sed 's/^/    /' "$out" >&2
+    # Do not leave a half-written token: under NULLOK=no a partial or absent
+    # secret is the difference between working MFA and a locked-out account.
+    if [[ ! -s "$home/.google_authenticator" ]]; then
+      rm -f "$home/.google_authenticator"
+    fi
+    shred -u "$out" 2>/dev/null || rm -f "$out"
+    return 1
+  fi
+
+  [[ -s "$home/.google_authenticator" ]] \
+    || { err "$u: google-authenticator reported success but wrote no secret"; return 1; }
 
   chown root:root "$out"; chmod 0600 "$out"
   chown "$u:$(id -gn "$u")" "$home/.google_authenticator"
   chmod 0400 "$home/.google_authenticator"
   command -v restorecon >/dev/null && restorecon -F "$home/.google_authenticator" 2>/dev/null || true
+
+  # A percent-encoded '?' means the QR/URI will not parse in most apps.
+  if grep -q '%3[Ff]secret' "$out"; then
+    warn "$u: the generated otpauth URI has an encoded '?' and may not scan."
+    warn "    Set TOTP_LABEL_FLAGS=no in config/mfa.env and re-enrol."
+  fi
 
   ok "enrolled $u"
   log "secret, QR code and scratch codes: $out"
