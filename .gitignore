@@ -1,0 +1,5 @@
+# Real config: contains this site's exemption policy and token parameters.
+config/mfa.env
+
+# macOS
+.DS_Store
