@@ -4,6 +4,7 @@
 #   40-enroll-user.sh alice bob     enrol named users
 #   40-enroll-user.sh --all         enrol every not-yet-enrolled target user
 #   40-enroll-user.sh --status      show who is enrolled
+#   40-enroll-user.sh --show alice  re-display QR/secret for an enrolled user
 #   40-enroll-user.sh --revoke bob  delete a user's token
 #
 # Self-enrolment is preferable: a secret generated here passes through root's
@@ -126,20 +127,23 @@ enroll_one() {
   chmod 0400 "$home/.google_authenticator"
   command -v restorecon >/dev/null && restorecon -F "$home/.google_authenticator" 2>/dev/null || true
 
-  # A percent-encoded '?' means the QR/URI will not parse in most apps.
-  if grep -q '%3[Ff]secret' "$out"; then
-    warn "$u: the generated otpauth URI has an encoded '?' and may not scan."
-    warn "    Set TOTP_LABEL_FLAGS=no in config/mfa.env and re-enrol."
-  fi
+  # Record the URI we will show, so the file matches what the user scanned.
+  # (The '%3F' inside google-authenticator's own google.com/chart URL is
+  # correct encoding -- the otpauth URI is a query-parameter value there --
+  # so it is not a sign of anything wrong.)
+  otpauth_uri "$u" >> "$out" 2>/dev/null || true
 
   ok "enrolled $u"
-  log "secret, QR code and scratch codes: $out"
-  log "deliver it out-of-band, have $u confirm a working code, then: shred -u $out"
+  show_enrollment "$u"
+  log "scratch codes and full output: $out"
+  log "deliver out-of-band, have $u confirm a working code, then: shred -u $out"
 }
 
 case "${1:-}" in
-  ''|-h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  ''|-h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   --status) show_status; exit 0 ;;
+  --show) shift; (( $# )) || die "--show needs a username"
+          for u in "$@"; do show_enrollment "$u"; done; exit 0 ;;
   --revoke) shift; (( $# )) || die "--revoke needs a username"
             for u in "$@"; do revoke "$u"; done; exit 0 ;;
   --all)

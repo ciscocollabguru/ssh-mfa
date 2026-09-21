@@ -26,6 +26,20 @@ pam_module_path >/dev/null \
 ok "PAM module: $(pam_module_path)"
 ok "CLI: $(command -v google-authenticator) ($(google-authenticator --version 2>&1 | head -1))"
 
+# qrencode draws the enrolment QR code (google-authenticator only draws one
+# when its stdout is a TTY, which it is not when we capture output).
+# oathtool lets an operator compare the server's expected code against the
+# user's app, which separates "bad secret" from "misconfigured app entry".
+for pkg in qrencode oathtool; do
+  if rpm -q "$pkg" >/dev/null 2>&1; then
+    ok "$pkg already installed"
+  elif dnf -y install "$pkg" >/dev/null 2>&1; then
+    ok "installed $pkg"
+  else
+    warn "could not install $pkg (enrolment still works; QR/verification aids unavailable)"
+  fi
+done
+
 # TOTP is only as good as the clock.
 if ! systemctl is-active --quiet chronyd; then
   log "enabling chronyd"

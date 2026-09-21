@@ -267,3 +267,90 @@ pam_render() {
   done
   [[ "$inserted" == "yes" ]] || return 1
 }
+
+# --- enrolment display ------------------------------------------------------
+# google-authenticator only draws a QR code when its stdout is a TTY, and
+# 40-enroll-user.sh captures stdout to a file. So we build the otpauth URI
+# from the stored secret and render it ourselves, which also lets us state
+# algorithm/digits/period explicitly instead of relying on app defaults.
+
+urlencode() {
+  local s="$1" i c out=""
+  for (( i=0; i<${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      [A-Za-z0-9.~_-]) out+="$c" ;;
+      *) out+="$(printf '%%%02X' "'$c")" ;;
+    esac
+  done
+  printf '%s\n' "$out"
+}
+
+# First line of ~/.google_authenticator is the base32 secret; the rest are
+# options (" RATE_LIMIT ...") and scratch codes.
+user_secret() {
+  local home
+  home="$(getent passwd "$1" | cut -d: -f6)" || return 1
+  [[ -s "$home/.google_authenticator" ]] || return 1
+  head -1 "$home/.google_authenticator"
+}
+
+otpauth_uri() {
+  local u="$1" secret label issuer
+  secret="$(user_secret "$u")" || return 1
+  issuer="$TOTP_ISSUER"
+  label="$u@$issuer"
+  printf 'otpauth://totp/%s?secret=%s&issuer=%s&algorithm=SHA1&digits=6&period=30\n' \
+    "$(urlencode "$label")" "$secret" "$(urlencode "$issuer")"
+}
+
+# Print the QR code, the URI and the secret for one enrolled user.
+show_enrollment() {
+  local u="$1" uri secret
+  secret="$(user_secret "$u")" || { err "$u is not enrolled"; return 1; }
+  uri="$(otpauth_uri "$u")"
+
+  local drew=no
+  echo
+  if command -v qrencode >/dev/null 2>&1; then
+    if qrencode -t ANSIUTF8 -m 1 -- "$uri" 2>/dev/null \
+       || qrencode -t ASCII -m 1 -- "$uri" 2>/dev/null; then
+      drew=yes
+    else
+      warn "qrencode failed; use the manual entry below"
+    fi
+  else
+    warn "qrencode is not installed, so no QR code can be drawn."
+    warn "  dnf -y install qrencode   then: scripts/40-enroll-user.sh --show $u"
+  fi
+
+  # google-authenticator emits a 128-bit secret as 26 unpadded base32 chars.
+  # Most apps accept that; some require the length to be a multiple of 8 and
+  # report an unpadded key as invalid, so offer the padded form too.
+  local pad="" need=$(( (8 - ${#secret} % 8) % 8 ))
+  (( need )) && pad="$secret$(printf '=%.0s' $(seq 1 $need))"
+
+  cat <<INFO
+
+  $([[ "$drew" == yes ]] && echo "Scan the code above, or enter" || echo "Enter") this by hand in the app:
+
+    Account     $u@$TOTP_ISSUER
+    Key         $secret
+    Type        Time based   (NOT counter/HOTP based)
+    Digits      6      Period 30s      Algorithm SHA1
+${pad:+"
+    If the app rejects that key as invalid, enter the padded form instead:
+      $pad
+"}
+  Full URI (paste into a password manager that accepts otpauth:// URIs):
+
+    $uri
+
+INFO
+  if command -v oathtool >/dev/null 2>&1; then
+    log "code the server expects right now: $(oathtool --totp -b "$secret" 2>/dev/null || echo '(oathtool failed)')"
+    log "if your app shows a different code, the app entry is wrong, not the secret."
+  else
+    log "install oathtool to compare your app against the server: dnf -y install oathtool"
+  fi
+}
