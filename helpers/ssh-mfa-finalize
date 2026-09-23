@@ -34,10 +34,23 @@ secret="$home/.google_authenticator"
 # deliberately NOT accepted here: it would let someone finish enrolment with a
 # code copied off the screen, which is exactly what this check exists to rule
 # out. They can reconnect and retry if the app is wrong.
+# google-authenticator writes a 128-bit secret as 26 unpadded base32 chars.
+# Pad to a multiple of 8 before handing it to oathtool: an unpadded key can
+# fail to decode, and a decode failure looks identical to a wrong code --
+# every attempt is rejected with no indication why. Padding a correctly
+# padded key is a no-op, so this is safe either way.
+pad_b32() {
+  local k="${1//[[:space:]]/}" n
+  k="$(tr 'a-z' 'A-Z' <<<"$k")"
+  k="${k%%=*}"
+  n=$(( (8 - ${#k} % 8) % 8 ))
+  (( n )) && printf '%s%s\n' "$k" "$(printf '=%.0s' $(seq 1 $n))" || printf '%s\n' "$k"
+}
+
 verify_code() {
   local code="$1" key
   [[ "$code" =~ ^[0-9]{6}$ ]] || return 1
-  key="$(head -1 "$secret")"
+  key="$(pad_b32 "$(head -1 "$secret")")"
   if ! command -v oathtool >/dev/null 2>&1; then
     logger -t ssh-mfa "oathtool absent; releasing $u without verifying their code"
     return 0
@@ -48,6 +61,13 @@ verify_code() {
   # impossible to complete. Check the current step and one either side, so a
   # code entered as the window rolls over is still accepted.
   local now expected stamp
+  # Establish that oathtool can decode this key at all, so a decode problem
+  # is reported as such rather than surfacing as "wrong code" forever.
+  if ! oathtool --totp -b "$key" >/dev/null 2>&1; then
+    logger -t ssh-mfa "oathtool cannot decode the secret for $u; releasing without code verification"
+    echo "warning: server could not verify the code (oathtool could not decode the key)" >&2
+    return 0
+  fi
   now="$(date +%s)"
   for off in 0 -30 30; do
     if (( off == 0 )); then

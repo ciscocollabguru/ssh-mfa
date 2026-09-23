@@ -384,7 +384,10 @@ ${pad:+"
 
 INFO
   if command -v oathtool >/dev/null 2>&1; then
-    log "code the server expects right now: $(oathtool --totp -b "$secret" 2>/dev/null || echo '(oathtool failed)')"
+    local padded="$secret" n
+    n=$(( (8 - ${#secret} % 8) % 8 ))
+    (( n )) && padded="$secret$(printf '=%.0s' $(seq 1 $n))"
+    log "code the server expects right now: $(oathtool --totp -b "$padded" 2>/dev/null || echo '(oathtool could not decode the key)')"
     log "if your app shows a different code, the app entry is wrong, not the secret."
   else
     log "install oathtool to compare your app against the server: dnf -y install oathtool"
@@ -452,4 +455,70 @@ apply_state_policy() {
   install -m 0600 -o "$u" -g "$(id -gn "$u")" "$tmp" "$f"
   rm -f "$tmp"
   command -v restorecon >/dev/null && restorecon -F "$f" 2>/dev/null || true
+}
+
+# Pad a base32 secret to a multiple of 8. google-authenticator emits 26
+# unpadded chars for a 128-bit key, which some decoders reject outright --
+# and a decode failure is indistinguishable from a wrong code, so every
+# attempt gets refused with no clue why.
+#
+# NOTE: ssh-mfa-finalize carries its own copy of this, because it runs from
+# /usr/local/sbin without the repo present. Change both together.
+pad_b32() {
+  local k n
+  k="$(tr -d '[:space:]' <<<"$1" | tr 'a-z' 'A-Z')"
+  k="${k%%=*}"
+  n=$(( (8 - ${#k} % 8) % 8 ))
+  if (( n )); then printf '%s%s\n' "$k" "$(printf '=%.0s' $(seq 1 $n))"
+  else printf '%s\n' "$k"; fi
+}
+
+# Print what the server expects for a user, and optionally test one code.
+# This is the diagnostic for "my app's code is rejected".
+check_user_code() {
+  local u="$1" code="${2:-}" key padded now stamp exp match=no
+  key="$(user_secret "$u")" || { err "$u is not enrolled"; return 1; }
+  padded="$(pad_b32 "$key")"
+
+  echo "  user            $u"
+  echo "  secret length   ${#key} chars (padded to ${#padded})"
+  echo "  file            $(getent passwd "$u" | cut -d: -f6)/.google_authenticator"
+  echo "  mode/owner      $(stat -c '%a %U:%G' "$(getent passwd "$u" | cut -d: -f6)/.google_authenticator" 2>/dev/null)"
+  echo "  options in file $(grep -c '^" ' "$(getent passwd "$u" | cut -d: -f6)/.google_authenticator" 2>/dev/null) line(s)"
+  echo "  server time     $(date '+%Y-%m-%d %H:%M:%S %Z')  (epoch $(date +%s))"
+  if command -v chronyc >/dev/null 2>&1; then
+    echo "  clock offset    $(chronyc tracking 2>/dev/null | awk -F': *' '/System time/{print $2}')"
+  fi
+
+  if ! command -v oathtool >/dev/null 2>&1; then
+    warn "oathtool is not installed; cannot compute the expected code"
+    warn "  dnf -y install oathtool"
+    return 1
+  fi
+
+  if ! oathtool --totp -b "$padded" >/dev/null 2>&1; then
+    err "oathtool cannot decode this secret even padded. That is the fault:"
+    err "  every code would be rejected regardless of the app."
+    oathtool --totp -b "$padded" 2>&1 | sed 's/^/    /' >&2
+    return 1
+  fi
+
+  now="$(date +%s)"
+  echo "  codes the server accepts:"
+  for off in -30 0 30; do
+    if (( off == 0 )); then
+      exp="$(oathtool --totp -b "$padded" 2>/dev/null)"
+    else
+      stamp="$(date -u -d "@$((now + off))" '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null)" || continue
+      exp="$(oathtool --totp -b --now="$stamp" "$padded" 2>/dev/null)" || continue
+    fi
+    printf '    %+4ds  %s\n' "$off" "${exp:-(could not compute)}"
+    [[ -n "$code" && "$code" == "$exp" ]] && match=yes
+  done
+
+  if [[ -n "$code" ]]; then
+    echo
+    if [[ "$match" == yes ]]; then ok "code $code MATCHES"
+    else err "code $code does not match any accepted step"; fi
+  fi
 }

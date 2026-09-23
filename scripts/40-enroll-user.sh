@@ -8,6 +8,7 @@
 #   40-enroll-user.sh --revoke bob  delete a user's token
 #   40-enroll-user.sh --fix-perms   repair 0400 secrets (no token rotation)
 #   40-enroll-user.sh --restate     match secrets to TOTP_STATEFUL (no rotation)
+#   40-enroll-user.sh --check u [code]  why is a code being rejected?
 #
 # Self-enrolment is preferable: a secret generated here passes through root's
 # hands and through this terminal's scrollback. See docs/USER-ENROLLMENT.md
@@ -155,6 +156,8 @@ case "${1:-}" in
   --status) show_status; exit 0 ;;
   --show) shift; (( $# )) || die "--show needs a username"
           for u in "$@"; do show_enrollment "$u"; done; exit 0 ;;
+  --check) shift; (( $# )) || die "--check needs a username, optionally a code"
+           check_user_code "$1" "${2:-}"; exit $? ;;
   --restate)
     # Rewrite the OPTION lines of existing secrets to match TOTP_STATEFUL,
     # without touching the secret or the scratch codes. No token is rotated,
