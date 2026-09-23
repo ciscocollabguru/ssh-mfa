@@ -125,6 +125,9 @@ enroll_one() {
 
   chown root:root "$out"; chmod 0600 "$out"
   secure_secret "$u"
+  # A freshly written secret needs the ssh_home_t label too, or the module
+  # cannot rewrite it on the user's first login.
+  selinux_warn_if_unlabelled "$u"
   command -v restorecon >/dev/null && restorecon -F "$home/.google_authenticator" 2>/dev/null || true
 
   # Record the URI we will show, so the file matches what the user scanned.

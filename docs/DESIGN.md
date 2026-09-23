@@ -125,6 +125,26 @@ re-prompts, with nothing in the prompt to indicate why. `0600` is what
 `40-enroll-user.sh --fix-perms` repairs affected tokens without rotating
 them.
 
+### The rewrite is atomic, so the directory matters too
+
+The module does not edit the secret in place. It creates
+`.google_authenticator~XXXXXX` in the user's home directory and renames it
+over the original. So a correct `0600` file is necessary but **not
+sufficient** — the module also needs to create a file *in that directory*:
+
+- The home directory must be writable by the user (it normally is).
+- Under SELinux the secret must be labelled `ssh_home_t`. `sshd_t` may read
+  `user_home_t`, which is why *reading* works out of the box, but it may not
+  create files there. The result is the most confusing failure in this whole
+  system: `Accepted google_authenticator for <user>` immediately followed by
+  `Failed to create tempfile ...: Permission denied`, and a re-prompt.
+
+`scripts/15-selinux.sh` adds the `fcontext` rule and relabels. The rule
+pattern is `<home-parent>/[^/]+/\.google_authenticator.*` — the trailing
+`.*` is load-bearing. A rule matching only the exact filename leaves the
+tempfile as `user_home_t` and the denial persists, which makes it look as
+though labelling did not help.
+
 ## Why root is exempt rather than enrolled
 
 Root is the repair path. A wrong `[success=N]`, a missing PAM module after a

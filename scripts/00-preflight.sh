@@ -59,7 +59,7 @@ log "checking SELinux"
 if command -v getenforce >/dev/null 2>&1; then
   ok "SELinux: $(getenforce)"
   [[ "$(getenforce)" == "Enforcing" ]] && \
-    log "secrets will live in each user's home as ~/.google_authenticator, which sshd can read under the default policy. Do not relocate them without adding an fcontext rule."
+    log "secrets live in each user's home as ~/.google_authenticator. sshd must not only READ them but REWRITE them (used-code and rate-limit records), which it does by creating a tempfile in the home directory. That needs an ssh_home_t label; scripts/15-selinux.sh adds it."
 fi
 
 # --- 6. current SSH policy ------------------------------------------------

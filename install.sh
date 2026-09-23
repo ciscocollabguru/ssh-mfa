@@ -45,6 +45,9 @@ scripts/00-preflight.sh
 [[ -n "$DRY" ]] || scripts/10-install-packages.sh
 scripts/20-configure-pam.sh $DRY
 scripts/30-configure-sshd.sh $DRY "${TIMER[@]}"
+# Labels secrets so the module can rewrite them. Safe before anyone is
+# enrolled (it becomes a no-op) and re-run by 40-enroll-user.sh afterwards.
+scripts/15-selinux.sh $DRY || warn "SELinux step reported problems; run scripts/15-selinux.sh --diagnose"
 
 [[ -n "$DRY" ]] && { log "--dry-run: nothing was changed"; exit 0; }
 scripts/90-validate.sh || true

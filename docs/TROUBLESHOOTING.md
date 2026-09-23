@@ -125,8 +125,32 @@ Confirm from the server side:
 sudo grep -i 'google_auth\|secret file' /var/log/secure | tail -20
 ```
 
-A line mentioning a failure to update or write the secret file is this
-problem. Tokens enrolled before the 0600 fix were written `0400`.
+Read the log carefully, because two different faults look alike:
+
+```
+Accepted google_authenticator for alice                  <- the CODE was correct
+Failed to create tempfile ".../.google_authenticator~XXXXXX": Permission denied
+Failed to update secret file ".../.google_authenticator": Permission denied
+```
+
+`Accepted ...` followed by `Failed to create tempfile` means the code was
+right and the *rewrite* failed. The module updates the secret atomically by
+creating a tempfile in the home directory and renaming it, so a correct
+`0600` file is not enough — it must also create a file in that directory.
+Under SELinux that needs the `ssh_home_t` label, because `sshd_t` may read
+`user_home_t` but not create files in it:
+
+```bash
+sudo scripts/15-selinux.sh --diagnose   # says which of the causes it is
+sudo scripts/15-selinux.sh              # adds the fcontext rule and relabels
+```
+
+Neither rotates a secret; existing tokens keep working.
+
+If instead you see `Invalid verification code` with no preceding `Accepted`
+line, the code itself was wrong — see the clock and code-reuse causes above.
+
+Tokens enrolled before the 0600 fix were written `0400`.
 
 Other causes of the same silent re-prompt:
 
@@ -180,9 +204,12 @@ so a running sshd should survive. If it is already down, fix
 sudo ausearch -m avc -ts recent | grep -E 'sshd|google_authenticator'
 ```
 
-The default policy allows sshd to read `~/.google_authenticator` in place.
-Denials usually mean the secret was relocated or a home directory has an
-unexpected label:
+The default policy allows sshd to *read* `~/.google_authenticator` in place,
+but not to *rewrite* it — which the module does on every login. That is the
+usual denial here, and `scripts/15-selinux.sh` fixes it by labelling the
+secret and its tempfiles `ssh_home_t`.
+
+Otherwise, a home directory may have an unexpected label:
 
 ```bash
 sudo restorecon -Rv /home/user

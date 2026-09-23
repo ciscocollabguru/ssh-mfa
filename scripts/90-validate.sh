@@ -121,6 +121,26 @@ else
 fi
 
 echo
+echo "== 5b. the module can rewrite each secret =="
+while read -r u; do
+  [[ -z "$u" ]] && continue
+  home="$(getent passwd "$u" | cut -d: -f6)"
+  f="$home/.google_authenticator"
+  [[ -e "$f" ]] || continue
+  check "$u: home writable by the user"
+  runuser -u "$u" -- test -w "$home" 2>/dev/null && yes_ \
+    || no_ "$home is not writable by $u; the atomic secret rewrite will fail"
+  if command -v getenforce >/dev/null && [[ "$(getenforce)" != "Disabled" ]]; then
+    ctx="$(ls -Zd "$f" 2>/dev/null | awk '{print $1}')"
+    check "$u: secret labelled ssh_home_t"
+    case "$ctx" in
+      *ssh_home_t*) yes_ ;;
+      *) no_ "labelled ${ctx:-unknown}; run scripts/15-selinux.sh" ;;
+    esac
+  fi
+done < <(mfa_target_users)
+
+echo
 echo "== 6. SELinux =="
 if command -v getenforce >/dev/null && [[ "$(getenforce)" != "Disabled" ]]; then
   check "no recent sshd/PAM AVC denials"

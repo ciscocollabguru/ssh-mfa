@@ -370,3 +370,21 @@ secure_secret() {
   chmod 0600 "$f"
   command -v restorecon >/dev/null && restorecon -F "$f" 2>/dev/null || true
 }
+
+# Warn if a secret lacks the label sshd needs in order to REWRITE it.
+# Reading works under the default policy; the atomic rewrite does not.
+selinux_warn_if_unlabelled() {
+  local u="$1" home f ctx
+  command -v getenforce >/dev/null 2>&1 || return 0
+  [[ "$(getenforce)" == "Disabled" ]] && return 0
+  home="$(getent passwd "$u" | cut -d: -f6)" || return 0
+  f="$home/.google_authenticator"
+  [[ -e "$f" ]] || return 0
+  ctx="$(ls -Zd "$f" 2>/dev/null | awk '{print $1}')"
+  case "$ctx" in
+    *ssh_home_t*) return 0 ;;
+    *) warn "$u: secret is labelled ${ctx:-unknown}, not ssh_home_t."
+       warn "    sshd will accept the code and then fail to update the file."
+       warn "    Fix: scripts/15-selinux.sh" ;;
+  esac
+}

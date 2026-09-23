@@ -148,7 +148,12 @@ and `sudo` as well as SSH, and `root` exemption does not protect you.
 
 ### 10. SELinux with relocated secrets
 
-Under the default policy sshd can read `~/.google_authenticator` where it is.
+Under the default policy sshd can *read* `~/.google_authenticator` where it
+is, but it cannot *rewrite* it — and the module rewrites it on every login to
+record used codes and rate-limit state. `scripts/15-selinux.sh` (also run by
+`install.sh`) adds the needed `ssh_home_t` rule; run that rather than doing
+it by hand. The rest of this step applies only to relocated secrets.
+
 If you move secrets to a central directory (for shared/NFS homes), sshd will
 be denied until you label the new location:
 
