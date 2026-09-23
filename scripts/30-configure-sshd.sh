@@ -28,6 +28,12 @@ if [[ "$AUTH_MODE" == "pubkey+totp" ]]; then
   missing=()
   while read -r u; do
     [[ -z "$u" ]] && continue
+    # Accounts mid-enrolment authenticate by password through the gate's own
+    # Match block, so a missing key is expected and not a lockout risk.
+    if [[ "$ENROLL_GATE" == "yes" ]] \
+       && id -nG "$u" 2>/dev/null | tr ' ' '\n' | grep -qx "$ENROLL_GROUP"; then
+      continue
+    fi
     home="$(getent passwd "$u" | cut -d: -f6)"
     if [[ ! -s "$home/.ssh/authorized_keys" ]]; then missing+=("$u"); fi
   done < <(mfa_target_users)
@@ -74,6 +80,24 @@ Match User root
 # Service and automation accounts that authenticate with keys only.
 Match Group $EXEMPT_GROUP
     AuthenticationMethods publickey
+$(if [[ "$ENROLL_GATE" == "yes" ]]; then cat <<GATE
+
+# Accounts that have not set up a token yet. They authenticate with their
+# password alone (the PAM stack applies nullok to this group only) and are
+# forced into self-enrolment instead of a shell. ssh-mfa-finalize removes
+# them from this group once they have a working token, after which the
+# strict branch of the PAM stack applies to them like everyone else.
+Match Group $ENROLL_GROUP
+    AuthenticationMethods keyboard-interactive:pam
+    ForceCommand /usr/local/sbin/ssh-mfa-selfenroll
+    PermitTTY yes
+    X11Forwarding no
+    AllowTcpForwarding no
+    AllowAgentForwarding no
+    PermitTunnel no
+    GatewayPorts no
+GATE
+fi)
 $(if [[ -n "$BREAKGLASS_CIDR" ]]; then cat <<BG
 
 # Break-glass network. Review docs/MANUAL-STEPS.md before relying on this.
@@ -91,12 +115,13 @@ if [[ "$DRY" == "yes" ]]; then
 fi
 
 # --- exempt group must exist before sshd parses Match Group ----------------
-if ! getent group "$EXEMPT_GROUP" >/dev/null; then
-  groupadd -r "$EXEMPT_GROUP"
-  ok "created group $EXEMPT_GROUP"
-else
-  ok "group $EXEMPT_GROUP exists"
-fi
+for g in "$EXEMPT_GROUP" $([[ "$ENROLL_GATE" == "yes" ]] && echo "$ENROLL_GROUP"); do
+  if ! getent group "$g" >/dev/null; then
+    groupadd -r "$g"; ok "created group $g"
+  else
+    ok "group $g exists"
+  fi
+done
 
 backup_file "$MAIN"
 backup_file "$SSHD_DROPIN"

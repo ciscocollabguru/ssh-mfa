@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Runs as the LOGGING-IN USER via sshd's ForceCommand, for members of the
+# enrolment group. Walks them through creating their own TOTP token, then asks
+# ssh-mfa-finalize (root, via a narrow sudoers rule) to secure the file and
+# release them from the group. Never returns a shell.
+#
+# Installed by scripts/45-enrollment-gate.sh --install.
+
+set -uo pipefail
+
+SECRET="$HOME/.google_authenticator"
+FINALIZE=/usr/local/sbin/ssh-mfa-finalize
+ISSUER="$(hostname -f 2>/dev/null || hostname -s 2>/dev/null || echo ssh)"
+
+bold=$'\033[1m'; off=$'\033[0m'; red=$'\033[31m'; grn=$'\033[32m'; yel=$'\033[33m'
+say()  { printf '%s\n' "$*"; }
+fail() { printf '%s%s%s\n' "$red" "$*" "$off" >&2; }
+
+trap 'echo; fail "Enrolment was interrupted. Reconnect to start again."; exit 1' INT TERM
+
+cat <<BANNER
+
+${bold}Multi-factor authentication setup${off}
+
+This account must be set up with an authenticator app before it can be
+used. It takes about two minutes and you will need your phone.
+
+You are not being given a shell until this is done. If you disconnect now,
+nothing is lost -- just reconnect and you will land back here.
+
+BANNER
+
+if [[ -s "$SECRET" ]]; then
+  say "${yel}You already have a token on this account.${off}"
+  say "Asking the server to finish releasing your account..."
+  sudo -n "$FINALIZE" 2>/dev/null \
+    && { say "${grn}Done. Reconnect and log in with your password and a code.${off}"; exit 0; }
+  fail "Could not finalise automatically. Contact your administrator."
+  exit 1
+fi
+
+say "You need a TOTP authenticator app: Google Authenticator, Microsoft"
+say "Authenticator, Authy, 1Password, Bitwarden, KeePassXC or Aegis all work."
+say ""
+read -r -p "Press Enter when the app is installed and ready... " _ || true
+say ""
+
+# Interactive, on a real TTY, so the QR code renders. -d/-r/-R are deliberately
+# left to the server's policy: finalize applies them if the server wants
+# stateful tokens, so this script does not need to know.
+if ! google-authenticator -t -f -w 3 -i "$ISSUER" -l "$USER@$ISSUER" -s "$SECRET"; then
+  fail "Token generation failed. Contact your administrator."
+  exit 1
+fi
+
+if [[ ! -s "$SECRET" ]]; then
+  fail "No token was written. Contact your administrator."
+  exit 1
+fi
+
+cat <<'MID'
+
+------------------------------------------------------------------------
+Scan the QR code above with your app, and SAVE THE SCRATCH CODES shown
+underneath it somewhere safe -- a password manager, not the phone that
+holds the app. Each one works once and they are your only way back in if
+you lose the phone.
+------------------------------------------------------------------------
+
+MID
+
+read -r -p "Have you scanned the code and saved the scratch codes? [y/N] " a || true
+if [[ "${a:-}" != y && "${a:-}" != Y ]]; then
+  say ""
+  say "${yel}Leaving the token in place but NOT releasing your account.${off}"
+  say "Reconnect when you are ready and you will land back here."
+  exit 1
+fi
+
+# Verify the app actually works before releasing the account. Getting this
+# wrong is how someone locks themselves out of their own account.
+say ""
+say "Now let's check the app agrees with the server."
+ok=no
+for attempt in 1 2 3; do
+  read -r -p "Enter the 6-digit code from your app: " code || true
+  if sudo -n "$FINALIZE" --verify "$code" 2>/dev/null; then ok=yes; break; fi
+  say "${red}That code was not accepted.${off} ($attempt of 3)"
+  say "If it keeps failing, check your phone's clock is set automatically."
+done
+
+if [[ "$ok" != yes ]]; then
+  say ""
+  fail "Could not verify a code. Your token is saved but your account is not released."
+  fail "Reconnect to try again, or contact your administrator."
+  exit 1
+fi
+
+cat <<DONE
+
+${grn}Multi-factor authentication is now active on your account.${off}
+
+Reconnect and you will be asked for your password and then a code:
+
+    ssh $USER@$ISSUER
+
+DONE
+exit 0

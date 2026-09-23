@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Add every login-capable, non-exempt, unenrolled account to the enrolment
+# group, and remove anyone from it who no longer belongs. Idempotent and
+# quiet; run by ssh-mfa-reconcile.service.
+
+set -uo pipefail
+REPO="$(cat /etc/ssh-mfa/repo-path 2>/dev/null)" || exit 0
+[[ -d "$REPO" ]] || exit 0
+exec "$REPO/scripts/45-enrollment-gate.sh" --reconcile --quiet

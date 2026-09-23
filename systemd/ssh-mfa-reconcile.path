@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch for new local accounts needing MFA enrolment
+
+[Path]
+PathChanged=/etc/passwd
+PathChanged=/etc/group
+Unit=ssh-mfa-reconcile.service
+
+[Install]
+WantedBy=multi-user.target

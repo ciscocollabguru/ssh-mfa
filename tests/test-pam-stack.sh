@@ -26,6 +26,7 @@ STOCK=$'#%PAM-1.0\nauth\t   substack     password-auth\nauth       include      
 # Defaults the generator reads.
 AUTH_MODE=pubkey+totp; NULLOK=yes; EXEMPT_USERS="root"
 EXEMPT_GROUP="ssh-mfa-exempt"; MIN_UID=1000
+ENROLL_GATE=no; ENROLL_GROUP="ssh-mfa-enroll"
 
 auth_lines() { grep -E '^[[:space:]]*auth' ; }
 nth_auth()   { auth_lines <<<"$1" | sed -n "${2}p"; }
@@ -112,6 +113,64 @@ echo
 echo "== customised file is rejected, not mangled =="
 pam_render <<<$'#%PAM-1.0\nauth required pam_deny.so' >/dev/null 2>&1
 assert "missing anchor returns non-zero" "$?" "1"
+
+echo
+echo "== enrolment gate: pubkey+totp =="
+AUTH_MODE=pubkey+totp; ENROLL_GATE=yes; NULLOK=no
+out="$(pam_render <<<"$STOCK")"
+assert "auth stack has 9 lines" "$(auth_lines <<<"$out" | wc -l | tr -d ' ')" "9"
+assert "4: enrolment-group guard" \
+  "$(nth_auth "$out" 4 | grep -o "ingroup $ENROLL_GROUP")" "ingroup $ENROLL_GROUP"
+assert "5: strict TOTP is NOT nullok" "$(nth_auth "$out" 5 | grep -c nullok)" "0"
+assert "6: enrolling TOTP IS nullok"  "$(nth_auth "$out" 6 | grep -c nullok)" "1"
+assert "8: password substack survives" \
+  "$(norm "$(nth_auth "$out" 8)")" "auth substack password-auth"
+# Landing sites: exempt guards -> the password substack (8);
+# enrol guard -> the nullok module (6); strict TOTP and permit -> postlogin (9).
+for spec in "1 6 8" "2 5 8" "3 4 8" "4 1 6" "5 3 9" "7 1 9"; do
+  read -r n jump target <<<"$spec"
+  got="$(nth_auth "$out" "$n" | grep -oE 'success=[0-9]+' | head -1 | cut -d= -f2)"
+  assert "line $n declares success=$jump" "$got" "$jump"
+  assert "line $n lands on line $target" "$(( n + jump + 1 ))" "$target"
+done
+assert "a failed strict TOTP dies rather than falling through" \
+  "$(nth_auth "$out" 5 | grep -c 'default=die')" "1"
+
+echo
+echo "== enrolment gate: password+totp =="
+AUTH_MODE=password+totp
+out="$(pam_render <<<"$STOCK")"
+assert "auth stack has 8 lines" "$(auth_lines <<<"$out" | wc -l | tr -d ' ')" "8"
+assert "1: password first" "$(norm "$(nth_auth "$out" 1)")" "auth substack password-auth"
+assert "6: strict TOTP is NOT nullok" "$(nth_auth "$out" 6 | grep -c nullok)" "0"
+assert "7: enrolling TOTP IS nullok"  "$(nth_auth "$out" 7 | grep -c nullok)" "1"
+for spec in "2 5 8" "3 4 8" "4 3 8" "5 1 7" "6 1 8"; do
+  read -r n jump target <<<"$spec"
+  got="$(nth_auth "$out" "$n" | grep -oE 'success=[0-9]+' | head -1 | cut -d= -f2)"
+  assert "line $n declares success=$jump" "$got" "$jump"
+  assert "line $n lands on line $target" "$(( n + jump + 1 ))" "$target"
+done
+
+echo
+echo "== gate off reproduces the original stacks =="
+ENROLL_GATE=no; NULLOK=yes
+AUTH_MODE=pubkey+totp
+assert "pubkey: 7 auth lines" "$(auth_lines <<<"$(pam_render <<<"$STOCK")" | wc -l | tr -d ' ')" "7"
+AUTH_MODE=password+totp
+assert "password: 6 auth lines" "$(auth_lines <<<"$(pam_render <<<"$STOCK")" | wc -l | tr -d ' ')" "6"
+assert "no enrolment group referenced when gate is off" \
+  "$(pam_render <<<"$STOCK" | grep -c "$ENROLL_GROUP")" "0"
+AUTH_MODE=pubkey+totp
+
+echo
+echo "== gate stacks are idempotent =="
+ENROLL_GATE=yes
+once="$(pam_render <<<"$STOCK")"
+assert "re-render is stable" "$(pam_render <<<"$once")" "$once"
+assert "exactly one managed block" "$(grep -c '^# BEGIN ssh-mfa' <<<"$once")" "1"
+assert "switching gate off shrinks the stack again" \
+  "$(ENROLL_GATE=no; auth_lines <<<"$(pam_render <<<"$once")" | wc -l | tr -d ' ')" "7"
+ENROLL_GATE=no
 
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"

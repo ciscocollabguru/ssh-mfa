@@ -55,7 +55,8 @@ Run in order; each is idempotent and safe to re-run.
 | `scripts/16-selinux-policy.sh` | Installs the policy module that permits the secret rewrite; `--remove` | yes |
 | `scripts/20-configure-pam.sh` | Writes the `/etc/pam.d/sshd` auth block | yes |
 | `scripts/30-configure-sshd.sh` | Writes the drop-in, validates, reloads sshd | yes |
-| `scripts/40-enroll-user.sh` | `<user>…` / `--all` / `--status` / `--revoke` | yes |
+| `scripts/40-enroll-user.sh` | `<user>…` / `--all` / `--status` / `--show` / `--revoke` / `--fix-perms` / `--restate` | yes |
+| `scripts/45-enrollment-gate.sh` | Forces new users to self-enrol on first login; `--install` / `--status` | yes |
 | `scripts/50-enforce-strict.sh` | Drops `nullok`; refuses while anyone is unenrolled | yes |
 | `scripts/90-validate.sh` | Read-only. 20+ checks, non-zero on failure | yes |
 | `scripts/99-rollback.sh` | `--list` / `--set DIR` / `--yes` | yes |
@@ -105,4 +106,5 @@ credential check. Run it after any change to `pam_block()`.
 - [`docs/MANUAL-STEPS.md`](docs/MANUAL-STEPS.md) — everything not automated
 - [`docs/ROLLOUT-PLAN.md`](docs/ROLLOUT-PLAN.md) — phased plan for a fleet
 - [`docs/USER-ENROLLMENT.md`](docs/USER-ENROLLMENT.md) — hand this to users
+- [`docs/SELF-ENROLLMENT.md`](docs/SELF-ENROLLMENT.md) — forcing new users to enrol on first login
 - [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — including lockout recovery

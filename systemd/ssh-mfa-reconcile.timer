@@ -1,0 +1,14 @@
+[Unit]
+Description=Periodic safety net for ssh-mfa enrolment reconciliation
+
+# The .path unit catches accounts created while it is running. This timer
+# catches anything it missed -- accounts created while the unit was stopped,
+# or arriving by a route that does not rewrite /etc/passwd in place.
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+Unit=ssh-mfa-reconcile.service
+
+[Install]
+WantedBy=timers.target

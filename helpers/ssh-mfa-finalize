@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Runs as ROOT via a narrow sudoers rule, invoked only by
+# ssh-mfa-selfenroll on behalf of the user who is enrolling.
+#
+#   ssh-mfa-finalize                  secure the caller's token, release them
+#   ssh-mfa-finalize --verify CODE    as above, but only after CODE validates
+#
+# It acts on $SUDO_USER and nothing else: it takes no username argument, so a
+# member of the enrolment group cannot use it to touch another account.
+
+set -uo pipefail
+
+ENROLL_GROUP_FILE=/etc/ssh-mfa/enroll-group
+STATEFUL_FILE=/etc/ssh-mfa/stateful
+RATE_FILE=/etc/ssh-mfa/ratelimit
+
+u="${SUDO_USER:-}"
+[[ -n "$u" ]] || { echo "must be invoked through sudo" >&2; exit 2; }
+[[ "$u" != root ]] || { echo "refusing to act on root" >&2; exit 2; }
+
+group="$(cat "$ENROLL_GROUP_FILE" 2>/dev/null || echo ssh-mfa-enroll)"
+stateful="$(cat "$STATEFUL_FILE" 2>/dev/null || echo yes)"
+read -r rl_n rl_s < <(cat "$RATE_FILE" 2>/dev/null || echo "3 30")
+
+# Only ever act on someone who is actually mid-enrolment.
+id -nG "$u" 2>/dev/null | tr ' ' '\n' | grep -qx "$group" \
+  || { echo "$u is not in $group; nothing to do" >&2; exit 3; }
+
+home="$(getent passwd "$u" | cut -d: -f6)"
+secret="$home/.google_authenticator"
+[[ -s "$secret" ]] || { echo "$u has no token" >&2; exit 4; }
+
+# Prove the user's APP works before releasing the account. A scratch code is
+# deliberately NOT accepted here: it would let someone finish enrolment with a
+# code copied off the screen, which is exactly what this check exists to rule
+# out. They can reconnect and retry if the app is wrong.
+verify_code() {
+  local code="$1" key
+  [[ "$code" =~ ^[0-9]{6}$ ]] || return 1
+  key="$(head -1 "$secret")"
+  if ! command -v oathtool >/dev/null 2>&1; then
+    logger -t ssh-mfa "oathtool absent; releasing $u without verifying their code"
+    return 0
+  fi
+  # Compare against generated codes rather than relying on oathtool's
+  # validation-mode semantics: generation is unambiguous, and a wrong
+  # assumption about validation would reject valid codes and make enrolment
+  # impossible to complete. Check the current step and one either side, so a
+  # code entered as the window rolls over is still accepted.
+  local now expected stamp
+  now="$(date +%s)"
+  for off in 0 -30 30; do
+    if (( off == 0 )); then
+      expected="$(oathtool --totp -b "$key" 2>/dev/null)"
+    else
+      stamp="$(date -u -d "@$((now + off))" '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null)" || continue
+      expected="$(oathtool --totp -b --now="$stamp" "$key" 2>/dev/null)" || continue
+    fi
+    [[ -n "$expected" && "$code" == "$expected" ]] && return 0
+  done
+  return 1
+}
+
+if [[ "${1:-}" == "--verify" ]]; then
+  verify_code "${2:-}" || { echo "code rejected" >&2; exit 5; }
+fi
+
+# Apply the server's state policy. The user's own run of
+# google-authenticator deliberately omits -d/-r/-R; the decision is the
+# server's, and under enforcing SELinux it depends on whether the policy
+# module is installed.
+tmp="$(mktemp)"
+if [[ "$stateful" == "yes" ]]; then
+  awk -v n="$rl_n" -v w="$rl_s" '
+    NR==1 { print; next }
+    /^" RATE_LIMIT/ || /^" DISALLOW_REUSE/ { next }
+    /^" / && !done { print "\" RATE_LIMIT " n " " w; print "\" DISALLOW_REUSE"; done=1 }
+    { print }
+    END { if (!done) { print "\" RATE_LIMIT " n " " w; print "\" DISALLOW_REUSE" } }
+  ' "$secret" > "$tmp"
+else
+  grep -v -e '^" RATE_LIMIT' -e '^" DISALLOW_REUSE' "$secret" > "$tmp"
+fi
+install -m 0600 -o "$u" -g "$(id -gn "$u")" "$tmp" "$secret"
+rm -f "$tmp"
+command -v restorecon >/dev/null 2>&1 && restorecon -F "$secret" 2>/dev/null || true
+
+# Release the account: from here on the strict branch of the PAM stack applies.
+gpasswd -d "$u" "$group" >/dev/null 2>&1 \
+  || { echo "failed to remove $u from $group" >&2; exit 6; }
+
+logger -t ssh-mfa "self-enrolment complete for $u; released from $group"
+echo "released"
+exit 0
