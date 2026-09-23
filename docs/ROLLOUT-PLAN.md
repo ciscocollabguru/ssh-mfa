@@ -19,14 +19,30 @@ sudo scripts/99-rollback.sh      # prove the escape hatch works
 
 Confirm, by hand, from a second terminal:
 
-- a named enrolled user is asked for a code
+- a named enrolled user is asked for a code, and **the login completes**
 - root is **not** asked for a code
 - an `ssh-mfa-exempt` member is **not** asked for a code
 - an unenrolled user still gets in under `nullok`, and does **not** after
   `50-enforce-strict.sh`
 - `99-rollback.sh` restores single-factor login
 
-Only proceed once you have personally seen all six.
+Only proceed once you have personally seen all five.
+
+"The login completes" is the one to dwell on. The characteristic failure of
+this stack is a **correct code that is still refused**, because the PAM
+module cannot record its used-code state — SELinux, or a `0400` secret. It
+produces no message to the user. If you see a re-prompt after entering a
+valid code:
+
+```bash
+sudo scripts/40-enroll-user.sh --check <user>
+sudo scripts/15-selinux.sh --diagnose
+sudo grep -i 'google_auth' /var/log/secure | tail
+```
+
+With `ENROLL_GATE=yes`, also confirm with a throwaway account that a new
+user lands in enrolment rather than a shell, is asked nothing beyond the QR
+code and their first token, and reaches a normal shell on the next login.
 
 ## Phase 1 — decide and announce (1 week ahead)
 

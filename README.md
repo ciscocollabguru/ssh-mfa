@@ -15,6 +15,8 @@ those are in [`docs/MANUAL-STEPS.md`](docs/MANUAL-STEPS.md).
 | `/etc/ssh/sshd_config.d/50-mfa.conf` | New. Sets `AuthenticationMethods`, plus `Match` blocks exempting root and `ssh-mfa-exempt` |
 | `/etc/ssh/sshd_config` | Adds an `Include` line at the top **only if absent** (AlmaLinux 8 ships without one) |
 | `~/.google_authenticator` | Per-user TOTP secret, mode `0600`, owned by the user (the module writes to it) |
+| SELinux | A local module (`ssh-mfa-gauth`) permitting that write, and an `fcontext` rule for the secret |
+| `/usr/local/sbin/`, `/etc/ssh-mfa/`, `/etc/sudoers.d/`, systemd units | Only with `ENROLL_GATE=yes` — see [`docs/SELF-ENROLLMENT.md`](docs/SELF-ENROLLMENT.md) |
 
 `system-auth` and `password-auth` are **not** touched — authselect owns those,
 and breaking them breaks `sudo`, `login` and `cron`, not just SSH.
@@ -24,7 +26,7 @@ and breaking them breaks `sudo`, `login` and `cron`, not just SSH.
 ```bash
 git clone <this repo> && cd ssh-mfa
 cp config/mfa.env.example config/mfa.env
-$EDITOR config/mfa.env                  # pick AUTH_MODE, review exemptions
+$EDITOR config/mfa.env      # AUTH_MODE, exemptions, ENROLL_GATE, TOTP_STATEFUL
 
 sudo ./install.sh --dry-run             # show every change, apply nothing
 sudo ./install.sh --safety-timer 10     # apply, auto-rollback in 10 min
@@ -34,10 +36,23 @@ ssh you@host                            # expect a verification-code prompt
 ssh root@host                           # expect NO code prompt
 sudo systemctl stop ssh-mfa-autorollback.timer   # cancel the rollback
 
-sudo scripts/40-enroll-user.sh --all    # or have users self-enrol
+sudo scripts/40-enroll-user.sh --all    # or let users self-enrol (ENROLL_GATE)
 sudo scripts/90-validate.sh
 sudo scripts/50-enforce-strict.sh       # once everyone is enrolled
 ```
+
+`install.sh` runs, in this order:
+
+```
+00-preflight → 10-install-packages → 15-selinux → 16-selinux-policy
+             → 45-enrollment-gate (if ENROLL_GATE=yes)
+             → 20-configure-pam → 30-configure-sshd → 90-validate
+```
+
+The SELinux steps come **before** PAM and sshd on purpose: otherwise the host
+is left requiring a code that the PAM module is not permitted to record, and
+every correct code is refused. See [`CHANGELOG.md`](CHANGELOG.md) if you are
+upgrading a host installed with an earlier version.
 
 Nothing is irreversible: `sudo scripts/99-rollback.sh` restores the previous
 `/etc/pam.d/sshd` and sshd config from `/var/backups/ssh-mfa/`.
@@ -102,6 +117,16 @@ Covers jump arithmetic for both modes, idempotency, `nullok` flips, and the
 safety property that no exempt branch can reach `pam_permit` without a real
 credential check. Run it after any change to `pam_block()`.
 
+## Requirements
+
+AlmaLinux 8 (or RHEL/Rocky 8). Packages are installed by
+`10-install-packages.sh`: `epel-release`, `google-authenticator`, `chrony`,
+`qrencode` (draws the enrolment QR code) and `oathtool` (lets the server
+compute the code it expects, which `--check` and self-enrolment rely on).
+
+An accurate clock is not optional: `chronyd` must be running and synchronised,
+or every user's codes are rejected at once.
+
 ## Docs
 
 - [`docs/DESIGN.md`](docs/DESIGN.md) — how the PAM jumps work and why
@@ -110,3 +135,5 @@ credential check. Run it after any change to `pam_block()`.
 - [`docs/USER-ENROLLMENT.md`](docs/USER-ENROLLMENT.md) — hand this to users
 - [`docs/SELF-ENROLLMENT.md`](docs/SELF-ENROLLMENT.md) — forcing new users to enrol on first login
 - [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — including lockout recovery
+- [`CHANGELOG.md`](CHANGELOG.md) — process changes, migration, and the
+  non-obvious failures this was built against

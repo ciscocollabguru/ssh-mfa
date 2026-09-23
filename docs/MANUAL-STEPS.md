@@ -198,10 +198,19 @@ The `[success=N]` counts assume that placement — read
 | Re-verify configuration | `sudo scripts/90-validate.sh` | after any sshd/PAM change, and monthly |
 | Review exemptions | `getent group ssh-mfa-exempt` | quarterly |
 | Check enrolment coverage | `sudo scripts/40-enroll-user.sh --status` | when accounts are added |
-| New user | `sudo scripts/40-enroll-user.sh <user>` | at onboarding |
+| Who still owes enrolment | `sudo scripts/45-enrollment-gate.sh --status` | with the gate enabled |
+| New user, gate enabled | nothing — gated automatically on creation | — |
+| New user, no gate | `sudo scripts/40-enroll-user.sh <user>` | at onboarding |
 | Departing user | `sudo scripts/40-enroll-user.sh --revoke <user>` | at offboarding |
 | Lost phone | `sudo MFA_REENROLL=yes scripts/40-enroll-user.sh <user>` | as needed |
+| Re-show a QR code | `sudo scripts/40-enroll-user.sh --show <user>` | on request (no rotation) |
+| Diagnose a rejected code | `sudo scripts/40-enroll-user.sh --check <user> [code]` | as needed |
+| Confirm SELinux still permits the rewrite | `sudo scripts/16-selinux-policy.sh --status` | after a `selinux-policy` update |
 | Prune old backups | `sudo ls -1dt /var/backups/ssh-mfa/*/ \| tail -n +10` | yearly |
+
+After a `google-authenticator` or `openssh` package update, re-run
+`90-validate.sh`: an RPM can replace `/etc/pam.d/sshd` and silently drop the
+managed block. Nothing else will notice.
 
 Adding a user account does **not** enrol them. Under `NULLOK=no` a new,
 unenrolled user cannot log in at all — enrol them as part of onboarding.
