@@ -94,11 +94,19 @@ rather than a pass.
 
 ## `AuthenticationMethods` and first-value-wins
 
-sshd honours the **first** occurrence of a keyword. AlmaLinux 8 ships
-`sshd_config` with `PasswordAuthentication yes` and without an `Include`
-line, so a drop-in added at the bottom would be silently ignored. Hence
-`30-configure-sshd.sh` inserts `Include /etc/ssh/sshd_config.d/*.conf` at the
-very top, and warns about any conflicting directive left below it.
+sshd honours the **first** occurrence of a keyword. EL8 ships `sshd_config`
+with `PasswordAuthentication yes` and without an `Include` line, so a drop-in
+added at the bottom would be silently ignored. Hence `30-configure-sshd.sh`
+inserts `Include /etc/ssh/sshd_config.d/*.conf` at the very top when it is
+missing, and warns about any conflicting directive left below it. EL9+ and
+Fedora already ship the `Include`, so nothing is added there.
+
+`ChallengeResponseAuthentication` is the pre-8.7 name for
+`KbdInteractiveAuthentication`. EL8's stock `sshd_config` sets it, so the
+drop-in must set it too in order to win the first-value-wins race; newer
+OpenSSH removed the keyword, and emitting one the local sshd rejects would
+fail `sshd -t` and block every reload. `sshd_supports_keyword` probes with a
+throwaway config rather than inferring support from the version.
 
 `Match` blocks must come last in the drop-in: every directive after a `Match`
 belongs to that block until the next one.
@@ -184,7 +192,7 @@ it must not depend on the mechanism that broke.
 This is a deliberate trade: root SSH is single-factor. It is worth
 constraining separately, none of which this kit changes for you:
 
-- `PermitRootLogin prohibit-password` (key-only) — AlmaLinux 8's default
+- `PermitRootLogin prohibit-password` (key-only) — the default across this family
 - Restrict root logins to a management network with `Match Address`
 - Or `PermitRootLogin no` entirely, relying on console plus `sudo` from an
   MFA-protected account — the strongest option, and it keeps root off the

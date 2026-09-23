@@ -1,7 +1,9 @@
-# ssh-mfa — TOTP two-factor SSH for AlmaLinux 8
+# ssh-mfa — TOTP two-factor SSH for dnf-based Linux
 
 Requires a second factor (a TOTP code from an authenticator app) for every
-named user logging in over SSH. **`root` is exempt by design**, as are system
+named user logging in over SSH. Runs on any dnf-based RPM distribution:
+RHEL 8+ and its rebuilds (AlmaLinux, Rocky, CentOS Stream, Oracle Linux,
+EuroLinux …) and Fedora. **`root` is exempt by design**, as are system
 accounts and anything in the `ssh-mfa-exempt` group.
 
 Automated end to end except for the steps that genuinely need a human —
@@ -13,7 +15,7 @@ those are in [`docs/MANUAL-STEPS.md`](docs/MANUAL-STEPS.md).
 |---|---|
 | `/etc/pam.d/sshd` | Adds a marker-delimited block that runs `pam_google_authenticator` for non-exempt users |
 | `/etc/ssh/sshd_config.d/50-mfa.conf` | New. Sets `AuthenticationMethods`, plus `Match` blocks exempting root and `ssh-mfa-exempt` |
-| `/etc/ssh/sshd_config` | Adds an `Include` line at the top **only if absent** (AlmaLinux 8 ships without one) |
+| `/etc/ssh/sshd_config` | Adds an `Include` line at the top **only if absent** (EL8 ships without one; EL9+ and Fedora already have it) |
 | `~/.google_authenticator` | Per-user TOTP secret, mode `0600`, owned by the user (the module writes to it) |
 | SELinux | A local module (`ssh-mfa-gauth`) permitting that write, and an `fcontext` rule for the secret |
 | `/usr/local/sbin/`, `/etc/ssh-mfa/`, `/etc/sudoers.d/`, systemd units | Only with `ENROLL_GATE=yes` — see [`docs/SELF-ENROLLMENT.md`](docs/SELF-ENROLLMENT.md) |
@@ -77,6 +79,7 @@ Run in order; each is idempotent and safe to re-run.
 | `scripts/99-rollback.sh` | `--list` / `--set DIR` / `--yes` | yes |
 | `tests/test-pam-stack.sh` | Unit tests for the PAM generator | **no** |
 | `tests/test-selfenroll-flags.sh` | Asserts enrolment asks the user nothing | **no** |
+| `tests/test-os-detect.sh` | Distribution detection across the supported family | **no** |
 
 ## Auth modes
 
@@ -109,8 +112,9 @@ break:
 ## Testing
 
 ```bash
-./tests/test-pam-stack.sh        # no root, no AlmaLinux, no PAM required
+./tests/test-pam-stack.sh        # no root, no target OS, no PAM required
 ./tests/test-selfenroll-flags.sh
+./tests/test-os-detect.sh
 ```
 
 Covers jump arithmetic for both modes, idempotency, `nullok` flips, and the
@@ -119,13 +123,29 @@ credential check. Run it after any change to `pam_block()`.
 
 ## Requirements
 
-AlmaLinux 8 (or RHEL/Rocky 8). Packages are installed by
-`10-install-packages.sh`: `epel-release`, `google-authenticator`, `chrony`,
-`qrencode` (draws the enrolment QR code) and `oathtool` (lets the server
-compute the code it expects, which `--check` and self-enrolment rely on).
+Any dnf-based RPM distribution with systemd and SELinux targeted policy:
 
-An accurate clock is not optional: `chronyd` must be running and synchronised,
-or every user's codes are rejected at once.
+| Family | Versions | Notes |
+|---|---|---|
+| RHEL | 8, 9, 10 | EPEL is installed from the Fedora-hosted package; CodeReady Builder is enabled via `subscription-manager` if present |
+| AlmaLinux, Rocky, CentOS Stream | 8, 9, 10 | `epel-release` from extras; `powertools` (8) or `crb` (9+) enabled |
+| Oracle Linux | 8, 9 | uses `oracle-epel-release-elN` |
+| Fedora | current | no EPEL — all three packages are in the base repositories |
+
+Unrecognised rebuilds are classified from `ID_LIKE`, so a new RHEL clone
+works without a code change. Anything else is refused unless you set
+`MFA_ALLOW_ANY_OS=yes`. Debian, Ubuntu and SUSE are **not** supported: the
+PAM stack, `authselect` and the SELinux types are RPM-family specific.
+
+Packages are installed by `10-install-packages.sh`: `google-authenticator`,
+`chrony`, `qrencode` (draws the enrolment QR code), `oathtool` (lets the
+server compute the code it expects, which `--check` and self-enrolment rely
+on), plus `policycoreutils-python-utils` and `checkpolicy` where SELinux is
+enabled. EPEL is added only on the EL family.
+
+An accurate clock is not optional: `chronyd` (or `systemd-timesyncd`, if
+that is what the host uses) must be running and synchronised, or every
+user's codes are rejected at once.
 
 ## Docs
 

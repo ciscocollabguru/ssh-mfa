@@ -19,8 +19,8 @@ pam_module_path >/dev/null && yes_ || no_ "run 10-install-packages.sh"
 check "google-authenticator CLI available"
 command -v google-authenticator >/dev/null && yes_ || no_
 
-check "chronyd active (TOTP needs an accurate clock)"
-systemctl is-active --quiet chronyd && yes_ || no_ "systemctl enable --now chronyd"
+check "time synchronisation active (TOTP needs an accurate clock)"
+timesync_active && yes_ || no_ "systemctl enable --now chronyd"
 
 echo
 echo "== 2. sshd =="

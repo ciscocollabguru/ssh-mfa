@@ -1,5 +1,54 @@
 # Changelog
 
+## 1.1.0
+
+Runs on any dnf-based RPM distribution, not just AlmaLinux 8.
+
+### Supported platforms
+
+| Family | Versions | EPEL |
+|---|---|---|
+| RHEL | 8, 9, 10 | Fedora-hosted `epel-release-latest-N`; CRB via `subscription-manager` |
+| AlmaLinux, Rocky, CentOS Stream | 8, 9, 10 | `epel-release` from extras; `powertools` (8) / `crb` (9+) |
+| Oracle Linux | 8, 9 | `oracle-epel-release-elN` |
+| Fedora | current | none — the packages are in the base repositories |
+
+Unrecognised rebuilds are classified from `ID_LIKE`, so a new RHEL clone
+works without a code change. Debian, Ubuntu and SUSE remain unsupported:
+the PAM stack, `authselect` and the SELinux types are RPM-family specific.
+
+### What changed
+
+- `require_almalinux8` became `require_dnf_os`, backed by `detect_os`, which
+  sets `OS_ID`, `OS_MAJOR`, `OS_FAMILY` and `OS_NEEDS_EPEL`. The old name
+  still works. Scripts branch on the family rather than on a distribution.
+- **EPEL is no longer added on Fedora**, where it does not belong and where
+  all three packages are in the base repositories. On RHEL proper,
+  `epel-release` is not in the default repositories at all, so it now falls
+  back to the Fedora-hosted package for the right major version.
+- **`ChallengeResponseAuthentication` is now probed, not assumed.** It is the
+  pre-8.7 name for `KbdInteractiveAuthentication`; EL8's stock config sets
+  it, so the drop-in must too, but newer OpenSSH removed it and emitting a
+  rejected keyword would fail `sshd -t` and block every reload.
+  `sshd_supports_keyword` writes a throwaway config and asks sshd to parse
+  it, rather than inferring support from a version number.
+- **`MIN_UID` is read from `/etc/login.defs`** instead of assuming 1000. A
+  site that raises `UID_MIN` would otherwise have silently had the wrong set
+  of accounts treated as system accounts.
+- **Time sync accepts `systemd-timesyncd`** as well as `chronyd`.
+- SELinux tooling (`policycoreutils-python-utils`, `checkpolicy`) is
+  installed only where SELinux is actually enabled.
+- `10-install-packages.sh` gained `--dry-run`, and names the capability lost
+  when an optional package cannot be installed.
+
+### If you are upgrading
+
+Nothing to do on an existing AlmaLinux 8 host: detection resolves it to the
+same family, and the generated PAM and sshd configuration is unchanged. To
+be sure, `sudo scripts/90-validate.sh`.
+
+---
+
 ## 1.0.0
 
 First version validated end to end on AlmaLinux 8.10 (`selinux-policy

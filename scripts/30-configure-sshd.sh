@@ -54,6 +54,19 @@ case "$AUTH_MODE" in
   password+totp) METHODS="keyboard-interactive:pam" ;;
 esac
 
+# ChallengeResponseAuthentication is the pre-8.7 name for
+# KbdInteractiveAuthentication. It is still accepted on EL8 (OpenSSH 8.0) and
+# is what that release's stock sshd_config sets, so emit it there to win the
+# first-value-wins race. Newer OpenSSH removed it, and emitting a keyword the
+# local sshd rejects would fail sshd -t and block every reload.
+CR_LINE=""
+if sshd_supports_keyword ChallengeResponseAuthentication yes; then
+  CR_LINE="ChallengeResponseAuthentication yes"$'\n'
+  log "sshd accepts ChallengeResponseAuthentication; emitting it alongside KbdInteractiveAuthentication"
+else
+  log "sshd has dropped ChallengeResponseAuthentication; using KbdInteractiveAuthentication only"
+fi
+
 dropin_content() {
   cat <<CONF
 # Managed by ssh-mfa/scripts/30-configure-sshd.sh. Do not edit by hand.
@@ -65,8 +78,7 @@ dropin_content() {
 
 UsePAM yes
 KbdInteractiveAuthentication yes
-ChallengeResponseAuthentication yes
-PasswordAuthentication no
+${CR_LINE}PasswordAuthentication no
 AuthenticationMethods $METHODS
 
 # --- exemptions ---
@@ -135,8 +147,9 @@ ok "wrote $SSHD_DROPIN"
 if grep -qE '^\s*Include\s+/etc/ssh/sshd_config\.d/\*\.conf' "$MAIN"; then
   ok "$MAIN already includes sshd_config.d"
 else
-  # AlmaLinux 8 ships sshd_config without an Include. It must go at the very
-  # top, because sshd honours the first occurrence of each keyword.
+  # EL8 ships sshd_config without an Include; EL9+ and Fedora include
+  # sshd_config.d already. Where it is missing it must go at the very top,
+  # because sshd honours the first occurrence of each keyword.
   tmp="$(mktemp)"
   { echo "# Added by ssh-mfa: drop-ins must be read first (first value wins)."
     echo "Include /etc/ssh/sshd_config.d/*.conf"
@@ -150,7 +163,7 @@ fi
 
 # Flag directives in the main file that our drop-in now overrides, so the
 # next person reading sshd_config is not misled.
-for kw in PasswordAuthentication ChallengeResponseAuthentication AuthenticationMethods; do
+for kw in PasswordAuthentication KbdInteractiveAuthentication ChallengeResponseAuthentication AuthenticationMethods; do
   if grep -qE "^\s*${kw}\b" "$MAIN"; then
     warn "$MAIN still sets $kw; the drop-in takes precedence (first value wins)"
   fi

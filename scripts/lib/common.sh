@@ -25,22 +25,90 @@ require_root() {
   [[ ${EUID:-$(id -u)} -eq 0 ]] || die "must run as root (try: sudo $0 $*)"
 }
 
-require_almalinux8() {
-  [[ -r /etc/os-release ]] || die "/etc/os-release missing; unsupported host"
-  # shellcheck disable=SC1091
-  . /etc/os-release
-  local major="${VERSION_ID%%.*}"
-  case "${ID}:${major}" in
-    almalinux:8|rhel:8|rocky:8|centos:8) ok "host is ${PRETTY_NAME:-$ID $VERSION_ID}" ;;
+# --- OS detection -----------------------------------------------------------
+# Supports the dnf-based RPM distributions: RHEL and its rebuilds (AlmaLinux,
+# Rocky, CentOS Stream, Oracle Linux, EuroLinux, ...) from 8 onwards, and
+# Fedora. These share the pieces this project depends on: dnf, systemd,
+# SELinux targeted policy with auth_home_t, authselect-managed PAM, GNU
+# coreutils and runuser.
+#
+# Sets OS_ID, OS_NAME, OS_MAJOR, OS_FAMILY (el|fedora) and OS_NEEDS_EPEL.
+# Takes an optional os-release path so tests can exercise this function
+# itself rather than a copy of its logic.
+detect_os() {
+  local osr="${1:-${OS_RELEASE_FILE:-/etc/os-release}}"
+  [[ -n "${OS_ID:-}" && -z "${1:-}" ]] && return 0   # already detected
+
+  if [[ ! -r "$osr" ]]; then
+    OS_ID=unknown; OS_NAME=unknown; OS_MAJOR=0; OS_FAMILY=unknown; OS_NEEDS_EPEL=no
+    return 0
+  fi
+  local ID="" ID_LIKE="" VERSION_ID="" PRETTY_NAME=""
+  # shellcheck disable=SC1090
+  . "$osr"
+  OS_ID="${ID:-unknown}"
+  OS_NAME="${PRETTY_NAME:-$OS_ID ${VERSION_ID:-}}"
+  OS_MAJOR="${VERSION_ID%%.*}"; OS_MAJOR="${OS_MAJOR:-0}"
+  [[ "$OS_MAJOR" =~ ^[0-9]+$ ]] || OS_MAJOR=0
+
+  case "$OS_ID" in
+    fedora)
+      # google-authenticator, qrencode and oathtool are all in the Fedora
+      # repositories; EPEL is for EL only and must not be added here.
+      OS_FAMILY=fedora; OS_NEEDS_EPEL=no ;;
+    amzn)
+      # Amazon Linux is dnf-based and Fedora-derived but has no EPEL.
+      OS_FAMILY=fedora; OS_NEEDS_EPEL=no ;;
+    rhel|almalinux|rocky|centos|ol|oracle|eurolinux|miraclelinux|navylinux|circle|springdale|scientific|virtuozzo)
+      OS_FAMILY=el; OS_NEEDS_EPEL=yes ;;
     *)
-      if [[ "${MFA_ALLOW_ANY_OS:-no}" == "yes" ]]; then
-        warn "host is ${PRETTY_NAME:-$ID $VERSION_ID}; continuing (MFA_ALLOW_ANY_OS=yes)"
-      else
-        die "expected AlmaLinux 8 (RHEL 8 family), found ${PRETTY_NAME:-$ID $VERSION_ID}. Override with MFA_ALLOW_ANY_OS=yes."
-      fi
-      ;;
+      # Fall back to ID_LIKE for rebuilds this list has not caught up with.
+      case " ${ID_LIKE:-} " in
+        *" rhel "*|*" centos "*|*" fedora "*)
+          if (( OS_MAJOR >= 8 )) && (( OS_MAJOR < 40 )); then
+            OS_FAMILY=el; OS_NEEDS_EPEL=yes
+          else
+            OS_FAMILY=fedora; OS_NEEDS_EPEL=no
+          fi ;;
+        *) OS_FAMILY=unknown; OS_NEEDS_EPEL=no ;;
+      esac ;;
   esac
 }
+
+# The repository carrying build dependencies, disabled by default on EL.
+# Renamed from PowerTools to CRB in EL9.
+crb_repo_name() {
+  case "$OS_FAMILY:$OS_MAJOR" in
+    el:8) printf 'powertools\n' ;;
+    el:*) printf 'crb\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+require_dnf_os() {
+  detect_os
+  command -v dnf >/dev/null 2>&1 \
+    || die "dnf not found. This project targets dnf-based RPM distributions (RHEL 8+ and rebuilds, Fedora); found ${OS_NAME}."
+
+  local supported=no
+  case "$OS_FAMILY" in
+    el)     (( OS_MAJOR >= 8 )) && supported=yes ;;
+    fedora) supported=yes ;;
+  esac
+
+  if [[ "$supported" == "yes" ]]; then
+    ok "host is ${OS_NAME} (family ${OS_FAMILY}, major ${OS_MAJOR})"
+    return 0
+  fi
+  if [[ "${MFA_ALLOW_ANY_OS:-no}" == "yes" ]]; then
+    warn "host is ${OS_NAME}, which is not a recognised dnf target; continuing (MFA_ALLOW_ANY_OS=yes)"
+    return 0
+  fi
+  die "unsupported host: ${OS_NAME}. Expected RHEL 8+ or a rebuild (AlmaLinux, Rocky, CentOS Stream, Oracle Linux) or Fedora. Override with MFA_ALLOW_ANY_OS=yes."
+}
+
+# Kept so older notes and any local scripts still work.
+require_almalinux8() { require_dnf_os; }
 
 # --- config ----------------------------------------------------------------
 load_config() {
@@ -59,7 +127,12 @@ load_config() {
   : "${NULLOK:=yes}"
   : "${EXEMPT_USERS:=root}"
   : "${EXEMPT_GROUP:=ssh-mfa-exempt}"
-  : "${MIN_UID:=1000}"
+  # UID_MIN is 1000 across this family, but read it rather than assume: a
+  # site can raise it, and getting it wrong silently changes who needs MFA.
+  if [[ -z "${MIN_UID:-}" ]]; then
+    MIN_UID="$(awk '$1=="UID_MIN"{print $2; exit}' /etc/login.defs 2>/dev/null)"
+    [[ "$MIN_UID" =~ ^[0-9]+$ ]] || MIN_UID=1000
+  fi
   : "${BREAKGLASS_CIDR:=}"
   : "${TOTP_WINDOW:=3}"
   : "${TOTP_RATE_LIMIT_N:=3}"
@@ -521,4 +594,51 @@ check_user_code() {
     if [[ "$match" == yes ]]; then ok "code $code MATCHES"
     else err "code $code does not match any accepted step"; fi
   fi
+}
+
+# --- time synchronisation ---------------------------------------------------
+# TOTP is clock-derived. chrony is the default across the RHEL family and
+# Fedora, but a host may use systemd-timesyncd instead; accept either.
+timesync_name() {
+  systemctl is-active --quiet chronyd 2>/dev/null && { printf 'chronyd\n'; return 0; }
+  systemctl is-active --quiet systemd-timesyncd 2>/dev/null && { printf 'systemd-timesyncd\n'; return 0; }
+  printf 'none\n'; return 1
+}
+
+timesync_active() { [[ "$(timesync_name)" != "none" ]]; }
+
+# Human-readable sync state, or empty when it cannot be determined.
+timesync_status() {
+  if systemctl is-active --quiet chronyd 2>/dev/null && command -v chronyc >/dev/null 2>&1; then
+    local src; src="$(chronyc -c tracking 2>/dev/null | cut -d, -f2)"
+    if [[ -n "$src" && "$src" != "0.0.0.0" ]]; then
+      printf 'synchronised to %s\n' "$src"; return 0
+    fi
+    printf 'running but not synchronised\n'; return 1
+  fi
+  if systemctl is-active --quiet systemd-timesyncd 2>/dev/null; then
+    if timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -qi yes; then
+      printf 'synchronised (systemd-timesyncd)\n'; return 0
+    fi
+    printf 'running but not synchronised\n'; return 1
+  fi
+  printf 'not running\n'; return 1
+}
+
+# --- sshd capability probes -------------------------------------------------
+# ChallengeResponseAuthentication was renamed KbdInteractiveAuthentication in
+# OpenSSH 8.7 and later removed. Emitting a keyword the local sshd rejects
+# makes sshd -t fail, which would block every reload. Probe instead of
+# assuming: write a one-line config and ask sshd to parse it.
+sshd_supports_keyword() {
+  local kw="$1" val="$2" tmp out
+  tmp="$(mktemp)"
+  printf '%s %s\n' "$kw" "$val" > "$tmp"
+  out="$(/usr/sbin/sshd -t -f "$tmp" 2>&1)"
+  rm -f "$tmp"
+  # A minimal config can fail for unrelated reasons (missing host keys), so
+  # only an explicit complaint naming this keyword counts as unsupported.
+  grep -qiE "(unsupported|bad configuration|unknown) .*${kw}|${kw}.*(unsupported|unknown)" <<<"$out" \
+    && return 1
+  return 0
 }

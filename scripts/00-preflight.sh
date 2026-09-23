@@ -9,7 +9,7 @@ load_config
 fail=0
 note() { warn "$*"; fail=$((fail+1)); }
 
-require_almalinux8
+require_dnf_os
 
 # --- 1. a working second path onto the box ---------------------------------
 log "checking break-glass access"
@@ -24,15 +24,14 @@ fi
 
 # --- 2. time sync (TOTP is clock-dependent) -------------------------------
 log "checking time synchronisation"
-if systemctl is-active --quiet chronyd; then
-  if chronyc tracking >/dev/null 2>&1 && \
-     [[ "$(chronyc -c tracking 2>/dev/null | cut -d, -f2)" != "0.0.0.0" ]]; then
-    ok "chronyd active and synchronised to $(chronyc -c tracking | cut -d, -f2)"
+if timesync_active; then
+  if status="$(timesync_status)"; then
+    ok "$(timesync_name) $status"
   else
-    note "chronyd is running but not synchronised to a source. TOTP codes will be rejected once drift exceeds ${TOTP_WINDOW} x 30s."
+    note "$(timesync_name) is $status. TOTP codes will be rejected once drift exceeds ${TOTP_WINDOW} x 30s."
   fi
 else
-  note "chronyd is not active. Enable it: systemctl enable --now chronyd"
+  note "no time synchronisation is active. Enable it: systemctl enable --now chronyd"
 fi
 
 # --- 3. packages ----------------------------------------------------------
@@ -42,8 +41,15 @@ if pam_module_path >/dev/null; then
 else
   log "pam_google_authenticator.so not installed yet (10-install-packages.sh will add it)"
 fi
-rpm -q epel-release >/dev/null 2>&1 && ok "epel-release installed" \
-  || log "epel-release not installed yet"
+if [[ "$OS_NEEDS_EPEL" == "yes" ]]; then
+  rpm -q epel-release >/dev/null 2>&1 || rpm -q "oracle-epel-release-el${OS_MAJOR}" >/dev/null 2>&1 \
+    && ok "EPEL installed" || log "EPEL not installed yet"
+else
+  log "${OS_NAME} does not use EPEL"
+fi
+for p in qrencode oathtool; do
+  rpm -q "$p" >/dev/null 2>&1 && ok "$p installed" || log "$p not installed yet"
+done
 
 # --- 4. authselect: /etc/pam.d/sshd must be ours to edit ------------------
 log "checking authselect"

@@ -4,21 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Bash automation that enables TOTP two-factor SSH authentication on
-AlmaLinux 8 (RHEL 8 family) for all named users, with `root` exempt. No
-application code — it edits `/etc/pam.d/sshd`, `/etc/ssh/sshd_config.d/`,
-SELinux policy and, optionally, installs helpers under `/usr/local/sbin`.
+Bash automation that enables TOTP two-factor SSH authentication on any
+dnf-based RPM distribution — RHEL 8+ and its rebuilds (AlmaLinux, Rocky,
+CentOS Stream, Oracle Linux) and Fedora — for all named users, with `root`
+exempt. No application code: it edits `/etc/pam.d/sshd`,
+`/etc/ssh/sshd_config.d/`, SELinux policy and, optionally, installs helpers
+under `/usr/local/sbin`.
 
-Validated end to end on AlmaLinux 8.10 with SELinux enforcing. `CHANGELOG.md`
-records the non-obvious failures found on a real host; read it before
-changing enrolment or SELinux behaviour, because most of them presented as
-something other than what they were.
+Validated end to end on AlmaLinux 8.10 with SELinux enforcing. Other members
+of the family are covered by detection and tests but have not been run on
+real hardware — treat EL9/10 and Fedora as untested in practice.
+
+`CHANGELOG.md` records the non-obvious failures found on a real host; read it
+before changing enrolment or SELinux behaviour, because most of them
+presented as something other than what they were.
 
 ## Commands
 
 ```bash
 ./tests/test-pam-stack.sh          # 70 assertions on the PAM generator
 ./tests/test-selfenroll-flags.sh   # 19 assertions that enrolment asks nothing
+./tests/test-os-detect.sh          # 21 assertions on distribution detection
 bash -n <script>                   # syntax check
 shellcheck -S warning install.sh scripts/*.sh scripts/lib/common.sh helpers/* tests/*.sh
 
@@ -26,13 +32,13 @@ sudo ./install.sh --dry-run        # print every proposed change, apply nothing
 sudo scripts/90-validate.sh        # read-only verification, non-zero on failure
 ```
 
-Both suites run on macOS with no root, PAM or SELinux. Individual cases are
-not separately addressable; each suite is a flat script with its own
+All three suites run on macOS with no root, PAM or SELinux. Individual cases
+are not separately addressable; each suite is a flat script with its own
 `assert`. To run one section, add an early `exit`.
 
 Anything touching `/etc`, `dnf`, `systemctl`, `runuser`, `semanage` or
 `semodule` cannot be exercised locally — and SELinux policy **cannot be
-compiled** on macOS. Test those in an AlmaLinux 8 VM.
+compiled** on macOS. Test those in a VM of the target distribution.
 `MFA_ALLOW_ANY_OS=yes` bypasses the OS check.
 
 ## Architecture
@@ -110,6 +116,11 @@ which is how `50-enforce-strict.sh` flips `nullok` without rewriting it.
 ## Conventions
 
 - Every mutating script takes `--dry-run`; add it to any new one.
+- Do not hardcode a distribution or version. `detect_os` sets `OS_ID`,
+  `OS_MAJOR`, `OS_FAMILY` (`el`/`fedora`) and `OS_NEEDS_EPEL`; branch on
+  those. It takes an os-release path so tests drive the real function.
+  Probe for sshd keywords with `sshd_supports_keyword` rather than inferring
+  from a version number.
 - Call `backup_file` before writing anything under `/etc`. It records absent
   files as `ABSENT` so `99-rollback.sh` deletes files we created. One backup
   set per run — `install.sh` calls `begin_backup_set` so a rollback undoes
