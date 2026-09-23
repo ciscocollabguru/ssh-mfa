@@ -76,7 +76,7 @@ sudo chronyc makestep       # step the clock immediately
 4. **Wrong entry in the app.** Multiple servers look alike; check the label.
 5. **Secret unreadable:**
    ```bash
-   sudo ls -l ~user/.google_authenticator     # want: -r-------- user user
+   sudo ls -l ~user/.google_authenticator     # want: -rw------- user user
    sudo -u user cat ~user/.google_authenticator >/dev/null && echo readable
    ```
 6. **Enrolled at all?** `sudo scripts/40-enroll-user.sh --status`
@@ -106,6 +106,36 @@ sudo sshd -T | grep -iE 'authenticationmethods|passwordauthentication|kbdinterac
 - **The user is exempt** — `id -nG user`, and check UID ≥ `MIN_UID`.
 - **`nullok` still set and the user is unenrolled** — expected behaviour
   until `50-enforce-strict.sh` runs.
+
+## Both factors accepted, then a silent failure and re-prompt
+
+The classic cause is a read-only secret file. `pam_google_authenticator`
+writes back to `~/.google_authenticator` to record used codes (`-d`) and
+attempt timestamps (`-r`/`-R`). If it cannot, it fails the authentication and
+emits no message to the user, so the prompts simply repeat.
+
+```bash
+sudo ls -l ~user/.google_authenticator     # want: -rw------- user user
+sudo scripts/40-enroll-user.sh --fix-perms # repairs all users, no rotation
+```
+
+Confirm from the server side:
+
+```bash
+sudo grep -i 'google_auth\|secret file' /var/log/secure | tail -20
+```
+
+A line mentioning a failure to update or write the secret file is this
+problem. Tokens enrolled before the 0600 fix were written `0400`.
+
+Other causes of the same silent re-prompt:
+
+- **SELinux** is denying the read or write:
+  `sudo ausearch -m avc -ts recent | grep -E 'sshd|google_auth'`
+- **The home directory is not writable** or is on a full filesystem:
+  `df -h ~user; sudo -u user touch ~user/.probe`
+- **NFS/automounted home** not mounted at authentication time
+  (`docs/MANUAL-STEPS.md` step 11).
 
 ## Prompted for a password *and* a code, in pubkey+totp mode
 

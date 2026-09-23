@@ -103,8 +103,11 @@ while read -r u; do
     home="$(getent passwd "$u" | cut -d: -f6)"
     perms="$(stat -c '%a %U' "$home/.google_authenticator")"
     check "$u enrolled"
-    if [[ "$perms" == "400 $u" || "$perms" == "600 $u" ]]; then yes_
-    else no_ "secret has perms/owner '$perms', expected '400 $u'"; fi
+    case "$perms" in
+      "600 $u") yes_ ;;
+      "400 $u") no_ "secret is 0400 (read-only); -d/-r need to write to it. Fix: scripts/40-enroll-user.sh --fix-perms $u" ;;
+      *)        no_ "secret has perms/owner '$perms', expected '600 $u'" ;;
+    esac
   else
     unenrolled+=("$u")
   fi

@@ -6,6 +6,7 @@
 #   40-enroll-user.sh --status      show who is enrolled
 #   40-enroll-user.sh --show alice  re-display QR/secret for an enrolled user
 #   40-enroll-user.sh --revoke bob  delete a user's token
+#   40-enroll-user.sh --fix-perms   repair 0400 secrets (no token rotation)
 #
 # Self-enrolment is preferable: a secret generated here passes through root's
 # hands and through this terminal's scrollback. See docs/USER-ENROLLMENT.md
@@ -123,8 +124,7 @@ enroll_one() {
     || { err "$u: google-authenticator reported success but wrote no secret"; return 1; }
 
   chown root:root "$out"; chmod 0600 "$out"
-  chown "$u:$(id -gn "$u")" "$home/.google_authenticator"
-  chmod 0400 "$home/.google_authenticator"
+  secure_secret "$u"
   command -v restorecon >/dev/null && restorecon -F "$home/.google_authenticator" 2>/dev/null || true
 
   # Record the URI we will show, so the file matches what the user scanned.
@@ -144,6 +144,24 @@ case "${1:-}" in
   --status) show_status; exit 0 ;;
   --show) shift; (( $# )) || die "--show needs a username"
           for u in "$@"; do show_enrollment "$u"; done; exit 0 ;;
+  --fix-perms)
+    # Repairs tokens written by an earlier version that chmod'd them 0400,
+    # which silently breaks authentication. Does not rotate any secret.
+    shift
+    if (( $# )); then targets=("$@"); else mapfile -t targets < <(mfa_target_users); fi
+    for u in "${targets[@]}"; do
+      [[ -z "$u" ]] && continue
+      home="$(getent passwd "$u" | cut -d: -f6)"
+      if [[ ! -e "$home/.google_authenticator" ]]; then
+        log "$u: not enrolled, nothing to fix"; continue
+      fi
+      before="$(stat -c '%a %U' "$home/.google_authenticator")"
+      secure_secret "$u"
+      after="$(stat -c '%a %U' "$home/.google_authenticator")"
+      if [[ "$before" == "$after" ]]; then ok "$u: already $after"
+      else ok "$u: $before -> $after"; fi
+    done
+    exit 0 ;;
   --revoke) shift; (( $# )) || die "--revoke needs a username"
             for u in "$@"; do revoke "$u"; done; exit 0 ;;
   --all)

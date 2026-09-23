@@ -14,7 +14,7 @@ those are in [`docs/MANUAL-STEPS.md`](docs/MANUAL-STEPS.md).
 | `/etc/pam.d/sshd` | Adds a marker-delimited block that runs `pam_google_authenticator` for non-exempt users |
 | `/etc/ssh/sshd_config.d/50-mfa.conf` | New. Sets `AuthenticationMethods`, plus `Match` blocks exempting root and `ssh-mfa-exempt` |
 | `/etc/ssh/sshd_config` | Adds an `Include` line at the top **only if absent** (AlmaLinux 8 ships without one) |
-| `~/.google_authenticator` | Per-user TOTP secret, mode `0400`, owned by the user |
+| `~/.google_authenticator` | Per-user TOTP secret, mode `0600`, owned by the user (the module writes to it) |
 
 `system-auth` and `password-auth` are **not** touched — authselect owns those,
 and breaking them breaks `sudo`, `login` and `cron`, not just SSH.

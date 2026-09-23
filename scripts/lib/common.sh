@@ -354,3 +354,19 @@ INFO
     log "install oathtool to compare your app against the server: dnf -y install oathtool"
   fi
 }
+
+# The secret file must be USER-WRITABLE, not just readable. With -d
+# (disallow code reuse) the module records each used code in the file, and
+# with -r/-R it records attempt timestamps for rate limiting. At 0400 those
+# writes fail, the module returns an auth error with no message to the user,
+# and sshd simply re-prompts -- both factors look accepted, then nothing.
+# 0600 owned by the user is what google-authenticator itself creates.
+secure_secret() {
+  local u="$1" home
+  home="$(getent passwd "$u" | cut -d: -f6)" || return 1
+  local f="$home/.google_authenticator"
+  [[ -e "$f" ]] || return 1
+  chown "$u:$(id -gn "$u")" "$f"
+  chmod 0600 "$f"
+  command -v restorecon >/dev/null && restorecon -F "$f" 2>/dev/null || true
+}

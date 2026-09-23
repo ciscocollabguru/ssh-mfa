@@ -103,13 +103,27 @@ very top, and warns about any conflicting directive left below it.
 `Match` blocks must come last in the drop-in: every directive after a `Match`
 belongs to that block until the next one.
 
-## Why `~/.google_authenticator` and 0400
+## Why `~/.google_authenticator` and 0600
 
 The secret is a bearer credential: anyone who reads it can generate valid
 codes forever. Per-user home storage means the OS's existing ownership rules
-protect it, and revocation is a single `rm`. Mode `0400` owned by the user
-lets `pam_google_authenticator` read it during authentication while keeping
-it out of reach of other unprivileged users. `90-validate.sh` checks both.
+protect it, and revocation is a single `rm`.
+
+The mode is `0600`, owned by the user — **writable, not just readable**. This
+is easy to get wrong, and getting it wrong produces a silent failure. The
+module does not only read the secret; it writes back to the same file:
+
+- `-d` (disallow code reuse) records each code as it is used, so it cannot be
+  replayed within its window.
+- `-r`/`-R` (rate limiting) records attempt timestamps.
+
+At `0400` those writes fail. The module then returns an authentication error
+**without any message to the user**, so sshd accepts both factors and
+re-prompts, with nothing in the prompt to indicate why. `0600` is what
+`google-authenticator` itself creates. `90-validate.sh` requires exactly
+`0600` and names this cause when it finds `0400`;
+`40-enroll-user.sh --fix-perms` repairs affected tokens without rotating
+them.
 
 ## Why root is exempt rather than enrolled
 
