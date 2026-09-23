@@ -61,6 +61,7 @@ Run in order; each is idempotent and safe to re-run.
 | `scripts/90-validate.sh` | Read-only. 20+ checks, non-zero on failure | yes |
 | `scripts/99-rollback.sh` | `--list` / `--set DIR` / `--yes` | yes |
 | `tests/test-pam-stack.sh` | Unit tests for the PAM generator | **no** |
+| `tests/test-selfenroll-flags.sh` | Asserts enrolment asks the user nothing | **no** |
 
 ## Auth modes
 
@@ -93,7 +94,8 @@ break:
 ## Testing
 
 ```bash
-./tests/test-pam-stack.sh     # no root, no AlmaLinux, no PAM required
+./tests/test-pam-stack.sh        # no root, no AlmaLinux, no PAM required
+./tests/test-selfenroll-flags.sh
 ```
 
 Covers jump arithmetic for both modes, idempotency, `nullok` flips, and the

@@ -424,3 +424,32 @@ selinux_warn_if_unlabelled() {
        warn "    Fix: scripts/15-selinux.sh" ;;
   esac
 }
+
+# Rewrite a secret's OPTION lines to match TOTP_STATEFUL, leaving the key and
+# scratch codes untouched. Used after enrolment and by --restate.
+#
+# google-authenticator is always invoked WITH -d and -r/-R, because omitting
+# them makes it stop and ask the user about settings that are the server's
+# decision. Stateless mode is therefore produced by removing the option lines
+# afterwards rather than by declining the flags.
+apply_state_policy() {
+  local u="$1" home f tmp
+  home="$(getent passwd "$u" | cut -d: -f6)" || return 1
+  f="$home/.google_authenticator"
+  [[ -s "$f" ]] || return 1
+  tmp="$(mktemp)"
+  if [[ "$TOTP_STATEFUL" == "yes" ]]; then
+    awk -v n="$TOTP_RATE_LIMIT_N" -v w="$TOTP_RATE_LIMIT_S" '
+      NR==1 { print; next }
+      /^" RATE_LIMIT/ || /^" DISALLOW_REUSE/ { next }
+      /^" / && !done { print "\" RATE_LIMIT " n " " w; print "\" DISALLOW_REUSE"; done=1 }
+      { print }
+      END { if (!done) { print "\" RATE_LIMIT " n " " w; print "\" DISALLOW_REUSE" } }
+    ' "$f" > "$tmp"
+  else
+    grep -v -e '^" RATE_LIMIT' -e '^" DISALLOW_REUSE' "$f" > "$tmp"
+  fi
+  install -m 0600 -o "$u" -g "$(id -gn "$u")" "$tmp" "$f"
+  rm -f "$tmp"
+  command -v restorecon >/dev/null && restorecon -F "$f" 2>/dev/null || true
+}

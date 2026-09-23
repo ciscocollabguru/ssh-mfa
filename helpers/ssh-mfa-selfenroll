@@ -12,6 +12,12 @@ SECRET="$HOME/.google_authenticator"
 FINALIZE=/usr/local/sbin/ssh-mfa-finalize
 ISSUER="$(hostname -f 2>/dev/null || hostname -s 2>/dev/null || echo ssh)"
 
+# Rate-limit values the server wants, so they can be passed on the command
+# line and never asked about. Written by 45-enrollment-gate.sh --install.
+read -r RL_N RL_S < <(cat /etc/ssh-mfa/ratelimit 2>/dev/null || echo "3 30")
+[[ "$RL_N" =~ ^[0-9]+$ ]] || RL_N=3
+[[ "$RL_S" =~ ^[0-9]+$ ]] || RL_S=30
+
 bold=$'\033[1m'; off=$'\033[0m'; red=$'\033[31m'; grn=$'\033[32m'; yel=$'\033[33m'
 say()  { printf '%s\n' "$*"; }
 fail() { printf '%s%s%s\n' "$red" "$*" "$off" >&2; }
@@ -45,10 +51,26 @@ say ""
 read -r -p "Press Enter when the app is installed and ready... " _ || true
 say ""
 
-# Interactive, on a real TTY, so the QR code renders. -d/-r/-R are deliberately
-# left to the server's policy: finalize applies them if the server wants
-# stateful tokens, so this script does not need to know.
-if ! google-authenticator -t -f -w 3 -i "$ISSUER" -l "$USER@$ISSUER" -s "$SECRET"; then
+# Interactive, on a real TTY, so the QR code renders -- but every question
+# google-authenticator would otherwise ask must be answered by a flag, or the
+# user is quizzed about settings that are the server's decision, not theirs.
+# Each flag below suppresses exactly one prompt:
+#
+#   -t          "Do you want authentication tokens to be time-based?"
+#   -f          "Do you want me to update your ~/.google_authenticator file?"
+#   -d          "Do you want to disallow multiple uses of the same token?"
+#   -w 3        "Do you want to increase the window of permitted codes?"
+#   -r/-R       "Do you want to enable rate-limiting?"
+#
+# -f alone is not enough: it only covers the file-update question. Omitting
+# -d or -r/-R is what makes the other two appear.
+#
+# -d and -r/-R are passed unconditionally so nothing is asked. If the server
+# runs stateless tokens (TOTP_STATEFUL=no, e.g. no SELinux policy module),
+# ssh-mfa-finalize strips those option lines afterwards; the user's session
+# needs no write either way, because their authentication already happened.
+if ! google-authenticator -t -f -d -w 3 -r "$RL_N" -R "$RL_S" \
+       -i "$ISSUER" -l "$USER@$ISSUER" -s "$SECRET"; then
   fail "Token generation failed. Contact your administrator."
   exit 1
 fi

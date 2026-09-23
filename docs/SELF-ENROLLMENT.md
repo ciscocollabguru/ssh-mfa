@@ -52,6 +52,32 @@ sudo scripts/45-enrollment-gate.sh --status
 sudo userdel -r testmfa
 ```
 
+## Why the user is asked nothing
+
+`google-authenticator` is interactive by default, and `-f` (`--force`) only
+suppresses the "update your file?" question — a detail that is easy to get
+wrong, because the flag reads as though it covers everything. Each remaining
+question has its own flag, and omitting one does not quietly accept the
+default; it stops and asks:
+
+| Question | Suppressed by |
+|---|---|
+| Time-based tokens? | `-t` |
+| Update your `~/.google_authenticator`? | `-f` |
+| Disallow multiple uses of the same token? | `-d` |
+| Increase the window of permitted codes? | `-w 3` |
+| Enable rate-limiting? | `-r`/`-R` |
+
+All are passed, so the user sees only the QR code and the scratch codes.
+`-d` and `-r`/`-R` are passed **unconditionally**, which means the answer to
+both is effectively yes. Stateless mode (`TOTP_STATEFUL="no"`) is not
+produced by declining those flags — that would prompt — but by stripping the
+option lines from the file afterwards, which `apply_state_policy` and
+`ssh-mfa-finalize` both do.
+
+`tests/test-selfenroll-flags.sh` asserts that no question remains, for both
+this flow and `40-enroll-user.sh`.
+
 ## Day to day
 
 | Task | Command |

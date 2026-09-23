@@ -71,15 +71,16 @@ enroll_one() {
 
   # -t TOTP  -d no code reuse  -f write the file without confirming
   # -w skew window  -r/-R rate limit  -e emergency scratch codes
-  # -d and -r/-R make the module rewrite the secret on every login. Under
-  # SELinux that needs the policy module (scripts/16-selinux-policy.sh);
-  # TOTP_STATEFUL=no omits them so nothing is ever written.
-  local args=(-t -f -w "$TOTP_WINDOW" -s "$home/.google_authenticator")
-  if [[ "$TOTP_STATEFUL" == "yes" ]]; then
-    args+=(-d -r "$TOTP_RATE_LIMIT_N" -R "$TOTP_RATE_LIMIT_S")
-  else
-    warn "$u: TOTP_STATEFUL=no -- no replay protection, no per-user rate limit"
-  fi
+  # -d and -r/-R are always passed. Omitting them does not quietly disable
+  # those features: google-authenticator STOPS AND ASKS about each one, and
+  # with stdout captured the question is invisible while it consumes the
+  # stdin we feed it. Stateless mode is applied afterwards by
+  # apply_state_policy, which strips the option lines.
+  local args=(-t -f -d -w "$TOTP_WINDOW"
+    -r "$TOTP_RATE_LIMIT_N" -R "$TOTP_RATE_LIMIT_S"
+    -s "$home/.google_authenticator")
+  [[ "$TOTP_STATEFUL" == "yes" ]] \
+    || warn "$u: TOTP_STATEFUL=no -- no replay protection, no per-user rate limit"
 
   # Match on the long option: help lists flags as "-e, --emergency-codes=N",
   # so grepping for "-e " (trailing space) never matches and silently drops
@@ -130,6 +131,7 @@ enroll_one() {
     || { err "$u: google-authenticator reported success but wrote no secret"; return 1; }
 
   chown root:root "$out"; chmod 0600 "$out"
+  apply_state_policy "$u"
   secure_secret "$u"
   # A freshly written secret needs the ssh_home_t label too, or the module
   # cannot rewrite it on the user's first login.
@@ -157,37 +159,16 @@ case "${1:-}" in
     # Rewrite the OPTION lines of existing secrets to match TOTP_STATEFUL,
     # without touching the secret or the scratch codes. No token is rotated,
     # so users keep the entry already in their authenticator app.
-    #
-    # The file format is: secret on line 1, then option lines beginning with
-    # a double quote, then scratch codes. Removing the RATE_LIMIT and
-    # DISALLOW_REUSE options is what stops the module needing to write.
     shift
     if (( $# )); then targets=("$@"); else mapfile -t targets < <(mfa_target_users); fi
     for u in "${targets[@]}"; do
       [[ -z "$u" ]] && continue
       home="$(getent passwd "$u" | cut -d: -f6)"
-      f="$home/.google_authenticator"
-      [[ -s "$f" ]] || { log "$u: not enrolled, skipping"; continue; }
-      backup_file "$f"
-      tmpf="$(mktemp)"
-      if [[ "$TOTP_STATEFUL" == "yes" ]]; then
-        # Add the options back if absent, preserving everything else.
-        awk -v n="$TOTP_RATE_LIMIT_N" -v w="$TOTP_RATE_LIMIT_S" '
-          NR==1 { print; next }
-          /^" RATE_LIMIT/ || /^" DISALLOW_REUSE/ { next }
-          /^" / && !done { print "\" RATE_LIMIT " n " " w; print "\" DISALLOW_REUSE"; done=1 }
-          { print }
-          END { if (!done) { print "\" RATE_LIMIT " n " " w; print "\" DISALLOW_REUSE" } }
-        ' "$f" > "$tmpf"
-        state="stateful (replay protection + rate limit)"
-      else
-        grep -v -e '^" RATE_LIMIT' -e '^" DISALLOW_REUSE' "$f" > "$tmpf"
-        state="stateless (no rewrite needed)"
-      fi
-      install -m 0600 -o "$u" -g "$(id -gn "$u")" "$tmpf" "$f"
-      rm -f "$tmpf"
-      command -v restorecon >/dev/null && restorecon -F "$f" 2>/dev/null || true
-      ok "$u: now $state"
+      [[ -s "$home/.google_authenticator" ]] || { log "$u: not enrolled, skipping"; continue; }
+      backup_file "$home/.google_authenticator"
+      apply_state_policy "$u" \
+        && ok "$u: now $([[ "$TOTP_STATEFUL" == yes ]] && echo 'stateful (replay protection + rate limit)' || echo 'stateless (no rewrite needed)')" \
+        || err "$u: could not apply the state policy"
     done
     echo
     warn "sshd does not cache this; no reload needed. Test a login now."
