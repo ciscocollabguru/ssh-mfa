@@ -125,8 +125,8 @@ while read -r u; do
     ctx="$(ls -Zd "$f" 2>/dev/null | awk '{print $1}')"
     log "$u: label $ctx"
     case "$ctx" in
-      *ssh_home_t*) ok "$u: secret is ssh_home_t (sshd may rewrite it)" ;;
-      *) note "$u: secret is not ssh_home_t; sshd_t cannot create its tempfile beside it" ;;
+      *auth_home_t*|*ssh_home_t*) ok "$u: secret label is $ctx" ;;
+      *) note "$u: secret label is $ctx, expected auth_home_t" ;;
     esac
   fi
 done < <(mfa_target_users)
@@ -161,13 +161,15 @@ command -v semanage >/dev/null 2>&1 || {
 }
 command -v semanage >/dev/null 2>&1 || die "semanage still unavailable; cannot add an fcontext rule"
 
-# Label the secret AND its tempfiles as ssh_home_t. The tempfile name is
-# ".google_authenticator~XXXXXX", so the pattern must not anchor at the end
-# of the basename -- a rule matching only the exact filename leaves the
-# tempfile as user_home_t and the denial persists.
+# Label the secret auth_home_t, which is the type the distribution policy
+# already assigns to .google_authenticator (see `semanage fcontext -l`).
 #
-# The rule is added per parent directory of the affected homes, so accounts
-# created later are covered without re-running this.
+# Note what this does NOT fix. fcontext governs what restorecon applies, not
+# the label a NEWLY CREATED file receives. The module's tempfile
+# ".google_authenticator~XXXXXX" has a random suffix, so no named file
+# transition matches it and it inherits user_home_dir_t from the directory.
+# sshd_t cannot create that, and no fcontext rule changes it. That needs the
+# policy module in scripts/16-selinux-policy.sh.
 escape_re() { sed 's/[][\.^$*+?(){}|]/\\&/g' <<<"$1"; }
 
 mapfile -t parents < <(
@@ -180,6 +182,10 @@ mapfile -t parents < <(
 
 for p in "${parents[@]}"; do
   pattern="$(escape_re "$p")/[^/]+/\\.google_authenticator.*"
+  # An earlier version of this script set ssh_home_t here, which overrode the
+  # distribution's auth_home_t rule. Retract it if present.
+  semanage fcontext -d -t ssh_home_t "$pattern" 2>/dev/null \
+    && warn "removed an incorrect ssh_home_t rule for $p" || true
   if semanage fcontext -l 2>/dev/null | grep -qF -- "$pattern"; then
     ok "fcontext rule already present for $p"
     continue
@@ -188,12 +194,12 @@ for p in "${parents[@]}"; do
     log "--dry-run: semanage fcontext -a -t ssh_home_t '$pattern'"
     continue
   fi
-  if semanage fcontext -a -t ssh_home_t "$pattern" 2>/dev/null; then
-    ok "added fcontext: $pattern -> ssh_home_t"
+  if semanage fcontext -a -t auth_home_t "$pattern" 2>/dev/null; then
+    ok "added fcontext: $pattern -> auth_home_t"
   else
     # -a fails if an equivalent rule exists; -m modifies it instead.
-    semanage fcontext -m -t ssh_home_t "$pattern" \
-      && ok "updated fcontext: $pattern -> ssh_home_t" \
+    semanage fcontext -m -t auth_home_t "$pattern" \
+      && ok "updated fcontext: $pattern -> auth_home_t" \
       || die "could not add an fcontext rule for $pattern"
   fi
 done
@@ -211,6 +217,9 @@ while read -r u; do
 done < <(mfa_target_users)
 
 echo
-ok "SELinux fix applied. No secret was rotated; existing tokens still work."
+ok "labelling done. No secret was rotated; existing tokens still work."
+warn "Labelling alone does NOT permit the atomic rewrite. If logins still fail"
+warn "with 'Failed to create tempfile', install the policy module:"
+warn "    sudo scripts/16-selinux-policy.sh"
 warn "Test a login from a SECOND terminal before closing this session."
 log  "If it still fails: scripts/15-selinux.sh --diagnose"

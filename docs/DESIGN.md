@@ -139,11 +139,40 @@ sufficient** — the module also needs to create a file *in that directory*:
   system: `Accepted google_authenticator for <user>` immediately followed by
   `Failed to create tempfile ...: Permission denied`, and a re-prompt.
 
-`scripts/15-selinux.sh` adds the `fcontext` rule and relabels. The rule
-pattern is `<home-parent>/[^/]+/\.google_authenticator.*` — the trailing
-`.*` is load-bearing. A rule matching only the exact filename leaves the
-tempfile as `user_home_t` and the denial persists, which makes it look as
-though labelling did not help.
+The denial names the real obstacle:
+
+```
+avc: denied { create } for comm="sshd" name=".google_authenticator~TPL8qv"
+  scontext=sshd_t  tcontext=user_home_dir_t  tclass=file
+```
+
+The tempfile's type is `user_home_dir_t`, inherited from the directory. It is
+*not* the type in any `fcontext` rule, because **`fcontext` governs what
+`restorecon` applies, never the label a newly created file receives**. A
+named type transition cannot help either: the `~XXXXXX` suffix is random, and
+a named transition matches only an exact filename. So no labelling change can
+fix this on its own — a mistake this repo made once, in the first version of
+`15-selinux.sh`.
+
+Two supported resolutions:
+
+1. **`scripts/16-selinux-policy.sh`** installs `selinux/ssh-mfa-gauth.te`,
+   which transitions files `sshd_t` creates in a home directory to
+   `auth_home_t` — the type the distribution already assigns to
+   `.google_authenticator` — and grants the needed permissions on that type
+   only. Granting `create` on `user_home_dir_t:file` instead, as
+   `audit2allow` suggests, would let sshd create arbitrary directory-typed
+   files in every home; the transition is narrower.
+2. **`TOTP_STATEFUL="no"`** plus `40-enroll-user.sh --restate` removes the
+   `RATE_LIMIT` and `DISALLOW_REUSE` option lines from each secret, so the
+   module never writes and no policy change is required. It rotates no
+   tokens. The cost is a code being replayable within its validity window
+   and no per-user rate limit — `MaxAuthTries` still caps attempts per
+   connection.
+
+`15-selinux.sh` still corrects the label (the distribution's `auth_home_t`,
+which an earlier version of this repo wrongly overrode with `ssh_home_t`),
+but labelling alone is not sufficient and it now says so.
 
 ## Why root is exempt rather than enrolled
 

@@ -74,6 +74,8 @@ load_config() {
     [[ -z "$TOTP_ISSUER" || "$TOTP_ISSUER" == localhost* ]] && TOTP_ISSUER="ssh"
   fi
   : "${TOTP_LABEL_FLAGS:=no}"
+  : "${TOTP_STATEFUL:=yes}"
+  case "$TOTP_STATEFUL" in yes|no) ;; *) die "TOTP_STATEFUL must be yes or no" ;; esac
   : "${ENROLL_TIMEOUT:=60}"
   : "${SSHD_DROPIN:=/etc/ssh/sshd_config.d/50-mfa.conf}"
   : "${BACKUP_ROOT:=/var/backups/ssh-mfa}"

@@ -132,13 +132,25 @@ while read -r u; do
     || no_ "$home is not writable by $u; the atomic secret rewrite will fail"
   if command -v getenforce >/dev/null && [[ "$(getenforce)" != "Disabled" ]]; then
     ctx="$(ls -Zd "$f" 2>/dev/null | awk '{print $1}')"
-    check "$u: secret labelled ssh_home_t"
+    check "$u: secret labelled auth_home_t"
     case "$ctx" in
-      *ssh_home_t*) yes_ ;;
+      *auth_home_t*) yes_ ;;
+      *ssh_home_t*)  no_ "labelled ssh_home_t (from an older version); run scripts/15-selinux.sh" ;;
       *) no_ "labelled ${ctx:-unknown}; run scripts/15-selinux.sh" ;;
     esac
   fi
 done < <(mfa_target_users)
+
+if command -v getenforce >/dev/null && [[ "$(getenforce)" == "Enforcing" ]]; then
+  check "sshd may rewrite secrets (policy module or stateless tokens)"
+  if [[ "$TOTP_STATEFUL" == "no" ]]; then
+    skip_ "TOTP_STATEFUL=no: nothing is written, so no policy module is needed"
+  elif semodule -l 2>/dev/null | grep -q '^ssh-mfa-gauth'; then
+    yes_
+  else
+    no_ "stateful tokens under enforcing SELinux need scripts/16-selinux-policy.sh"
+  fi
+fi
 
 echo
 echo "== 6. SELinux =="

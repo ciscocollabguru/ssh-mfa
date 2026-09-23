@@ -51,7 +51,8 @@ Run in order; each is idempotent and safe to re-run.
 | `install.sh` | Runs 00→30 plus the SELinux step, then validates | yes |
 | `scripts/00-preflight.sh` | Read-only. OS, clock, break-glass access, who is affected | yes |
 | `scripts/10-install-packages.sh` | EPEL, `google-authenticator`, `chronyd` | yes |
-| `scripts/15-selinux.sh` | Labels secrets `ssh_home_t` so the module can rewrite them; `--diagnose` | yes |
+| `scripts/15-selinux.sh` | Labels secrets `auth_home_t`; `--diagnose`, `--collect` | yes |
+| `scripts/16-selinux-policy.sh` | Installs the policy module that permits the secret rewrite; `--remove` | yes |
 | `scripts/20-configure-pam.sh` | Writes the `/etc/pam.d/sshd` auth block | yes |
 | `scripts/30-configure-sshd.sh` | Writes the drop-in, validates, reloads sshd | yes |
 | `scripts/40-enroll-user.sh` | `<user>…` / `--all` / `--status` / `--revoke` | yes |

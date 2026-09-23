@@ -1,0 +1,43 @@
+module ssh-mfa-gauth 1.0;
+
+# Allow sshd to rewrite ~/.google_authenticator.
+#
+# pam_google_authenticator updates the secret on every authentication (used
+# codes for -d, attempt timestamps for -r/-R). It does so atomically: it
+# creates ".google_authenticator~XXXXXX" in the user's home directory and
+# renames it over the original.
+#
+# The random suffix is the crux. A named file transition can only match an
+# exact filename, so none applies, and the new file inherits the directory's
+# type (user_home_dir_t). sshd_t has no create permission on that, producing:
+#
+#   avc: denied { create } for comm="sshd" name=".google_authenticator~XXXXXX"
+#     scontext=system_u:system_r:sshd_t:s0-s0:c0.c1023
+#     tcontext=system_u:object_r:user_home_dir_t:s0 tclass=file
+#
+# An fcontext rule cannot fix this: fcontext governs what restorecon applies,
+# not the label a newly created file receives.
+#
+# Rather than granting sshd_t create on user_home_dir_t:file -- which would
+# let it create arbitrary directory-typed files in every home -- transition
+# files sshd_t creates in a home directory to auth_home_t, the type the
+# distribution policy already assigns to .google_authenticator, and grant the
+# permissions only on that type.
+
+require {
+    type sshd_t;
+    type user_home_dir_t;
+    type auth_home_t;
+    class file { create open read write getattr setattr unlink rename append };
+    class dir  { search write add_name remove_name };
+}
+
+type_transition sshd_t user_home_dir_t:file auth_home_t;
+
+allow sshd_t auth_home_t:file
+    { create open read write append getattr setattr unlink rename };
+
+# The rename and the tempfile both need directory entry manipulation. The
+# denial log showed only the file create, which means these are already
+# granted; they are listed so the module is self-contained if that changes.
+allow sshd_t user_home_dir_t:dir { search write add_name remove_name };
