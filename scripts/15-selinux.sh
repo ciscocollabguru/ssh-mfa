@@ -13,20 +13,78 @@
 #   sshd(pam_google_authenticator): Failed to create tempfile ".../..~XXXXXX": Permission denied
 #   sshd(pam_google_authenticator): Failed to update secret file ...: Permission denied
 #
-# Usage: 15-selinux.sh [--dry-run] [--diagnose]
+# Usage: 15-selinux.sh [--dry-run] [--diagnose] [--collect]
+#
+#   --diagnose  report which cause applies, change nothing
+#   --collect   dump full diagnostic output for pasting into a bug report
+#               (describes the secret file but never prints its contents)
 
 . "$(dirname "$(readlink -f "$0")")/lib/common.sh"
 require_root
 load_config
 
-DRY=no; DIAGNOSE_ONLY=no
+DRY=no; DIAGNOSE_ONLY=no; COLLECT=no
 while (( $# )); do
   case "$1" in
     --dry-run)  DRY=yes; shift ;;
     --diagnose) DIAGNOSE_ONLY=yes; shift ;;
+    --collect)  COLLECT=yes; shift ;;
     *) die "unknown argument: $1" ;;
   esac
 done
+
+# --- --collect: dump everything needed to identify the denial -------------
+# Printed so it can be pasted verbatim. Contains no secrets: the secret file
+# is described (label, mode, owner, size) but never read.
+if [[ "$COLLECT" == "yes" ]]; then
+  sec() { printf '\n===== %s =====\n' "$*"; }
+  run() { printf '$ %s\n' "$*"; eval "$@" 2>&1 | sed 's/^/  /' || true; }
+
+  sec "identity"
+  run "uname -r"; run "cat /etc/os-release | head -3"
+  run "rpm -q google-authenticator openssh-server selinux-policy 2>&1"
+
+  sec "selinux mode"
+  run "getenforce"; run "sestatus | head -8"
+
+  sec "the secret and its directory"
+  while read -r u; do
+    [[ -z "$u" ]] && continue
+    h="$(getent passwd "$u" | cut -d: -f6)"
+    [[ -e "$h/.google_authenticator" ]] || continue
+    run "ls -ldZ '$h'"
+    run "ls -lZ '$h/.google_authenticator'"
+    run "stat -c '%n mode=%a owner=%U:%G size=%s' '$h/.google_authenticator'"
+    run "runuser -u '$u' -- test -w '$h' && echo 'home writable by $u' || echo 'home NOT writable by $u'"
+    run "findmnt -no SOURCE,FSTYPE,OPTIONS --target '$h'"
+    run "df -Ph '$h' | tail -1"
+    run "lsattr -d '$h/.google_authenticator' 2>&1"
+  done < <(mfa_target_users)
+
+  sec "fcontext rules for the secret"
+  run "semanage fcontext -l 2>/dev/null | grep -i google_authenticator || echo '(no matching fcontext rule)'"
+
+  sec "AVC denials (today)"
+  run "ausearch -m avc -ts today 2>/dev/null | grep -iE 'google_authenticator|sshd' | tail -25 || echo '(none found)'"
+
+  sec "what the policy would allow instead"
+  run "ausearch -m avc -ts today 2>/dev/null | grep -i google_authenticator | audit2allow 2>/dev/null || echo '(audit2allow produced nothing; install policycoreutils-devel)'"
+  if command -v sesearch >/dev/null 2>&1; then
+    run "sesearch -A -s sshd_t -t ssh_home_t   -c file -p create,write 2>&1 | head"
+    run "sesearch -A -s sshd_t -t user_home_t  -c file -p create,write 2>&1 | head"
+    run "sesearch -A -s sshd_t -t user_home_dir_t -c dir -p add_name,write 2>&1 | head"
+  else
+    printf '  (sesearch not installed: dnf -y install setools-console)\n'
+  fi
+
+  sec "recent pam messages"
+  run "grep -i 'google_auth\|secret file' /var/log/secure | tail -15"
+
+  sec "effective policy"
+  run "sshd -T | grep -iE 'authenticationmethods|passwordauthentication|kbdinteractive|usepam'"
+  run "grep -nE '^[[:space:]]*auth' /etc/pam.d/sshd"
+  exit 0
+fi
 
 # --- 1. diagnose ----------------------------------------------------------
 mode=Disabled
