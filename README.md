@@ -1,6 +1,6 @@
 # ssh-mfa — TOTP two-factor SSH for dnf-based Linux
 
-[![tests](https://github.com/OWNER/REPO/actions/workflows/tests.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/tests.yml)
+[![tests](https://github.com/ciscocollabguru/ssh-mfa/actions/workflows/tests.yml/badge.svg)](https://github.com/ciscocollabguru/ssh-mfa/actions/workflows/tests.yml)
 
 Requires a second factor (a TOTP code from an authenticator app) for every
 named user logging in over SSH. Runs on any dnf-based RPM distribution:
