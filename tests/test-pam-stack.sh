@@ -2,9 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Scott Jones
 # Regression tests for pam_block()/pam_render() in scripts/lib/common.sh.
-# Runs anywhere (no root, no AlmaLinux, no PAM), so it is safe in CI.
+# Runs anywhere (no root, no target distribution, no PAM), so it is safe in CI.
 #
 #   ./tests/test-pam-stack.sh
+
+# Every configuration variable in this file is consumed by pam_block() in
+# the sourced library, which shellcheck cannot follow across the source
+# boundary, so it reports each as unused.
+# shellcheck disable=SC2034
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,12 +27,10 @@ assert() { if [[ "$2" == "$3" ]]; then t_ok "$1"; else t_no "$1" "expected [$3] 
 # Collapse runs of whitespace (the stock file mixes tabs and spaces) and trim.
 norm()   { tr -s '[:space:]' ' ' <<<"$1" | sed 's/ *$//'; }
 
-# A stock AlmaLinux 8 /etc/pam.d/sshd (auth section is what matters).
+# A stock EL /etc/pam.d/sshd (auth section is what matters).
 STOCK=$'#%PAM-1.0\nauth\t   substack     password-auth\nauth       include      postlogin\naccount    required     pam_sepermit.so\npassword   include      password-auth\nsession    include      postlogin'
 
-# Defaults the generator reads. These are consumed by pam_block() in the
-# sourced library, which shellcheck cannot follow across the boundary.
-# shellcheck disable=SC2034
+# Defaults the generator reads.
 AUTH_MODE=pubkey+totp; NULLOK=yes; EXEMPT_USERS="root"
 EXEMPT_GROUP="ssh-mfa-exempt"; MIN_UID=1000
 ENROLL_GATE=no; ENROLL_GROUP="ssh-mfa-enroll"
@@ -157,7 +160,6 @@ done
 
 echo
 echo "== gate off reproduces the original stacks =="
-# shellcheck disable=SC2034
 ENROLL_GATE=no; NULLOK=yes
 AUTH_MODE=pubkey+totp
 assert "pubkey: 7 auth lines" "$(auth_lines <<<"$(pam_render <<<"$STOCK")" | wc -l | tr -d ' ')" "7"
@@ -165,7 +167,6 @@ AUTH_MODE=password+totp
 assert "password: 6 auth lines" "$(auth_lines <<<"$(pam_render <<<"$STOCK")" | wc -l | tr -d ' ')" "6"
 assert "no enrolment group referenced when gate is off" \
   "$(pam_render <<<"$STOCK" | grep -c "$ENROLL_GROUP")" "0"
-# shellcheck disable=SC2034
 AUTH_MODE=pubkey+totp
 
 echo
