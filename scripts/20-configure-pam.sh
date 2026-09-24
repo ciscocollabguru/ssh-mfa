@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Rewrite the auth stack of /etc/pam.d/sshd to require a TOTP code, while
 # leaving exempt accounts on their original authenticator.
 #

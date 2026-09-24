@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Restore /etc/pam.d/sshd, /etc/ssh/sshd_config and the drop-in from a
 # backup set, then reload sshd. Enrolled tokens are left in place.
 #

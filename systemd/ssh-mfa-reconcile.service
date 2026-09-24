@@ -1,6 +1,5 @@
 [Unit]
 Description=Put new unenrolled accounts into the ssh-mfa enrolment group
-Documentation=https://github.com/OWNER/REPO
 ConditionPathExists=/etc/ssh-mfa/repo-path
 
 [Service]

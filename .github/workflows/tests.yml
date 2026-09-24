@@ -1,0 +1,52 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check every script
+        run: |
+          for f in install.sh scripts/*.sh scripts/lib/common.sh \
+                   tests/*.sh helpers/*; do
+            bash -n "$f" || exit 1
+          done
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -S warning \
+            install.sh scripts/*.sh scripts/lib/common.sh helpers/* tests/*.sh
+
+      # The suites are pure bash and need no root, PAM, SELinux or dnf,
+      # which is why they can run here at all. Anything that touches those
+      # has to be tested on a real host -- see CONTRIBUTING.md.
+      - name: PAM generator
+        run: ./tests/test-pam-stack.sh
+
+      - name: Enrolment asks nothing
+        run: ./tests/test-selfenroll-flags.sh
+
+      - name: Distribution detection
+        run: ./tests/test-os-detect.sh
+
+      - name: No identifying or secret material
+        run: |
+          # Guard against a hostname, a real username or a TOTP secret
+          # being committed in an example or a log excerpt.
+          if grep -rnE '\.google_authenticator:[A-Z2-7]{16,}' \
+               --exclude-dir=.git . ; then
+            echo "possible TOTP secret committed"; exit 1
+          fi
+          if git ls-files | grep -qE '(^|/)(config/mfa\.env|.*\.pp)$'; then
+            echo "a gitignored artifact is tracked"; exit 1
+          fi

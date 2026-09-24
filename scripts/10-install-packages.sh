@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Install the packages this project needs, on any dnf-based RPM distribution.
 #
 # EL (RHEL 8+ and rebuilds) needs EPEL: google-authenticator, qrencode and

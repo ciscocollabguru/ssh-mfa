@@ -1,5 +1,7 @@
 # ssh-mfa — TOTP two-factor SSH for dnf-based Linux
 
+[![tests](https://github.com/OWNER/REPO/actions/workflows/tests.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/tests.yml)
+
 Requires a second factor (a TOTP code from an authenticator app) for every
 named user logging in over SSH. Runs on any dnf-based RPM distribution:
 RHEL 8+ and its rebuilds (AlmaLinux, Rocky, CentOS Stream, Oracle Linux,
@@ -147,6 +149,23 @@ An accurate clock is not optional: `chronyd` (or `systemd-timesyncd`, if
 that is what the host uses) must be running and synchronised, or every
 user's codes are rejected at once.
 
+## Status
+
+Validated end to end on AlmaLinux 8.10 with SELinux enforcing, in
+`password+totp` mode with forced self-enrolment. EL9, EL10, Fedora and
+Oracle Linux are covered by distribution detection and by the test suites,
+but have **not** been run on real hardware — the EPEL fallback paths and the
+`ChallengeResponseAuthentication` probe in particular deserve a VM before
+you trust them in production.
+
+Read [`SECURITY.md`](SECURITY.md) before deploying: it lists what this
+deliberately does *not* protect against, including that `root` is
+single-factor by design.
+
+## Licence
+
+GPL-3.0-or-later — see [`LICENSE`](LICENSE). Copyright (C) 2026 Scott Jones.
+
 ## Docs
 
 - [`docs/DESIGN.md`](docs/DESIGN.md) — how the PAM jumps work and why
@@ -157,3 +176,6 @@ user's codes are rejected at once.
 - [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — including lockout recovery
 - [`CHANGELOG.md`](CHANGELOG.md) — process changes, migration, and the
   non-obvious failures this was built against
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to test a change, and what
+  cannot be tested off-host
+- [`SECURITY.md`](SECURITY.md) — reporting, scope, and the deliberate gaps

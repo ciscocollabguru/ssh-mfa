@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Runs as ROOT via a narrow sudoers rule, invoked only by
 # ssh-mfa-selfenroll on behalf of the user who is enrolling.
 #

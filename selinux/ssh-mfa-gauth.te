@@ -1,5 +1,8 @@
 module ssh-mfa-gauth 1.0;
 
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
+
 # Allow sshd to rewrite ~/.google_authenticator.
 #
 # pam_google_authenticator updates the secret on every authentication (used

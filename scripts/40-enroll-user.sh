@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Generate a TOTP secret for one or more users.
 #
 #   40-enroll-user.sh alice bob     enrol named users
@@ -93,7 +95,7 @@ enroll_one() {
   fi
 
   # -i/-l are off by default. Passing both makes some builds percent-encode
-  # the '?' and '&' of the otpauth URI ("...alice@host%3Fsecret%3D..."),
+  # the '?' and '&' of the otpauth URI ("...user@host%3Fsecret%3D..."),
   # collapsing it into a single path segment that many apps cannot parse.
   # The default label is already user@hostname, which is what we want.
   if [[ "${TOTP_LABEL_FLAGS:-no}" == "yes" ]]; then

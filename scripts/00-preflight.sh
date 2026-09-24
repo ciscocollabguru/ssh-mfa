@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Verify the host can support SSH MFA and record the pre-change state.
 # Read-only except for the state snapshot it writes under BACKUP_ROOT.
 

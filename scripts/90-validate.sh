@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Verify the MFA configuration. Read-only; safe to run any time.
 # Exit 0 = all checks pass.
 

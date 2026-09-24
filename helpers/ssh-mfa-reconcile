@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Add every login-capable, non-exempt, unenrolled account to the enrolment
 # group, and remove anyone from it who no longer belongs. Idempotent and
 # quiet; run by ssh-mfa-reconcile.service.

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Write the sshd drop-in that requires two factors, exempt root and the
 # exempt group, validate, then reload sshd.
 #

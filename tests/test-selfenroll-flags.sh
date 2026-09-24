@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Assert that the flags ssh-mfa-selfenroll passes leave google-authenticator
 # with nothing to ask. Runs anywhere: it stubs google-authenticator with a
 # model of 1.07's prompting logic, where each question is asked only when the

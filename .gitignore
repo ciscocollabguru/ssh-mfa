@@ -1,5 +1,40 @@
-# Real config: contains this site's exemption policy and token parameters.
+# --- secrets and host-specific state -----------------------------------
+# The operator's real config: exemption policy, rate limits, issuer, and
+# anything else specific to a site. Only mfa.env.example is tracked.
 config/mfa.env
+config/*.env
+!config/mfa.env.example
 
-# macOS
+# Enrolment output. These files contain TOTP secrets and scratch codes in
+# plaintext -- they are written to /root by default, but never commit one
+# if a copy is pulled into a working tree.
+*.google_authenticator
+.google_authenticator*
+ssh-mfa-enrolments/
+*-enrolment.txt
+
+# Backups taken by backup_file(), which contain the host's sshd and PAM
+# configuration.
+backups/
+*.siem-orig
+*.bak
+
+# --- build artifacts ----------------------------------------------------
+# Compiled SELinux policy. Built on the target host from selinux/*.te;
+# a .pp is architecture- and policy-version-specific and must not be shipped.
+*.mod
+*.pp
+selinux/tmp/
+
+# --- editor and OS noise ------------------------------------------------
 .DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

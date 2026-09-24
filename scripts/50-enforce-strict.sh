@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Remove 'nullok': from this point a user without a TOTP token cannot log in.
 # Refuses to run while any target user is still unenrolled.
 #

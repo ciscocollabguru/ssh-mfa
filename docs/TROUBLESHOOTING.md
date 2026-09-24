@@ -128,7 +128,7 @@ sudo grep -i 'google_auth\|secret file' /var/log/secure | tail -20
 Read the log carefully, because two different faults look alike:
 
 ```
-Accepted google_authenticator for alice                  <- the CODE was correct
+Accepted google_authenticator for alice                   <- the CODE was correct
 Failed to create tempfile ".../.google_authenticator~XXXXXX": Permission denied
 Failed to update secret file ".../.google_authenticator": Permission denied
 ```

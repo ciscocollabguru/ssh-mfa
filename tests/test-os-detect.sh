@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Verify detect_os against real /etc/os-release contents from each supported
 # distribution. Runs anywhere: it feeds detect_os a synthetic file rather
 # than reading the host's.

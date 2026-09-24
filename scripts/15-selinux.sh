@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Diagnose and fix write access to ~/.google_authenticator.
 #
 # pam_google_authenticator updates the secret file on every authentication

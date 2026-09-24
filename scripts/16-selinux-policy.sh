@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Build and install the local SELinux policy module that lets sshd rewrite
 # ~/.google_authenticator. See selinux/ssh-mfa-gauth.te for the reasoning.
 #

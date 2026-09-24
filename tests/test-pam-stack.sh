@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Scott Jones
 # Regression tests for pam_block()/pam_render() in scripts/lib/common.sh.
 # Runs anywhere (no root, no AlmaLinux, no PAM), so it is safe in CI.
 #
