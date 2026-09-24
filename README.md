@@ -164,7 +164,8 @@ single-factor by design.
 
 ## Licence
 
-GPL-3.0-or-later — see [`LICENSE`](LICENSE). Copyright (C) 2026 Scott Jones.
+Copyright (C) 2026 Scott Jones. Licensed GPL-3.0-or-later — see
+[`LICENSE`](LICENSE). Each source file carries an SPDX identifier.
 
 ## Docs
 
