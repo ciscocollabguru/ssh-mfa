@@ -70,7 +70,8 @@ enroll_one() {
   fi
 
   install -d -m 0700 "$ENROLL_OUT_DIR"
-  local out="$ENROLL_OUT_DIR/$u-$(date +%Y%m%dT%H%M%S).txt"
+  local out
+  out="$ENROLL_OUT_DIR/$u-$(date +%Y%m%dT%H%M%S).txt"
 
   # -t TOTP  -d no code reuse  -f write the file without confirming
   # -w skew window  -r/-R rate limit  -e emergency scratch codes

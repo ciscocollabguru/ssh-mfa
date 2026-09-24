@@ -40,7 +40,9 @@ done
 # is described (label, mode, owner, size) but never read.
 if [[ "$COLLECT" == "yes" ]]; then
   sec() { printf '\n===== %s =====\n' "$*"; }
-  run() { printf '$ %s\n' "$*"; eval "$@" 2>&1 | sed 's/^/  /' || true; }
+  # Commands are passed as a single string for display, so eval the string
+  # form rather than the array form (shellcheck SC2294).
+  run() { printf '$ %s\n' "$*"; eval "$*" 2>&1 | sed 's/^/  /' || true; }
 
   sec "identity"
   run "uname -r"; run "cat /etc/os-release | head -3"

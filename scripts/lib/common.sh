@@ -37,6 +37,10 @@ require_root() {
 # Sets OS_ID, OS_NAME, OS_MAJOR, OS_FAMILY (el|fedora) and OS_NEEDS_EPEL.
 # Takes an optional os-release path so tests can exercise this function
 # itself rather than a copy of its logic.
+#
+# OS_ID, OS_NAME, OS_MAJOR, OS_FAMILY and OS_NEEDS_EPEL are consumed by the
+# numbered scripts that source this library, not here.
+# shellcheck disable=SC2120,SC2034
 detect_os() {
   local osr="${1:-${OS_RELEASE_FILE:-/etc/os-release}}"
   [[ -n "${OS_ID:-}" && -z "${1:-}" ]] && return 0   # already detected

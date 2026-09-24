@@ -25,7 +25,9 @@ norm()   { tr -s '[:space:]' ' ' <<<"$1" | sed 's/ *$//'; }
 # A stock AlmaLinux 8 /etc/pam.d/sshd (auth section is what matters).
 STOCK=$'#%PAM-1.0\nauth\t   substack     password-auth\nauth       include      postlogin\naccount    required     pam_sepermit.so\npassword   include      password-auth\nsession    include      postlogin'
 
-# Defaults the generator reads.
+# Defaults the generator reads. These are consumed by pam_block() in the
+# sourced library, which shellcheck cannot follow across the boundary.
+# shellcheck disable=SC2034
 AUTH_MODE=pubkey+totp; NULLOK=yes; EXEMPT_USERS="root"
 EXEMPT_GROUP="ssh-mfa-exempt"; MIN_UID=1000
 ENROLL_GATE=no; ENROLL_GROUP="ssh-mfa-enroll"
@@ -155,6 +157,7 @@ done
 
 echo
 echo "== gate off reproduces the original stacks =="
+# shellcheck disable=SC2034
 ENROLL_GATE=no; NULLOK=yes
 AUTH_MODE=pubkey+totp
 assert "pubkey: 7 auth lines" "$(auth_lines <<<"$(pam_render <<<"$STOCK")" | wc -l | tr -d ' ')" "7"
@@ -162,6 +165,7 @@ AUTH_MODE=password+totp
 assert "password: 6 auth lines" "$(auth_lines <<<"$(pam_render <<<"$STOCK")" | wc -l | tr -d ' ')" "6"
 assert "no enrolment group referenced when gate is off" \
   "$(pam_render <<<"$STOCK" | grep -c "$ENROLL_GROUP")" "0"
+# shellcheck disable=SC2034
 AUTH_MODE=pubkey+totp
 
 echo
